@@ -1,33 +1,28 @@
 # Sistem Pendeteksi Kantuk
 
-Aplikasi Streamlit pendeteksi kantuk pengemudi (mata tertutup, menguap, kepala miring) dengan dua mode
-deteksi yang bisa dipakai bergantian:
+Aplikasi web pendeteksi kantuk pengemudi roda empat. Kamera depan ponsel memantau wajah pengemudi dan
+mendeteksi tiga kondisi: **mata tertutup**, **menguap**, dan **kepala miring**. Alarm berbunyi saat
+kondisi itu berlangsung melewati batas waktu, kejadiannya tercatat di histori, dan kontak terdekat
+mendapat email darurat berisi tautan lokasi kalau kantuk berlangsung lama.
 
-| | Mode **server** (versi lama) | Mode **browser** (baru) |
-|---|---|---|
-| Video kamera | dikirim ke server lewat streamlit-webrtc + relay TURN Metered | **tidak dikirim**, diproses di ponsel |
-| Deteksi wajah | MediaPipe Face Mesh (Python) di server | MediaPipe FaceLandmarker (JavaScript, `@mediapipe/tasks-vision` 0.10.35) di browser |
-| EAR, MAR, sudut, timer, alarm | `deteksi_kantuk.py` | `components/detektor/logika.js` (salinan langsung, diuji identik) |
-| CLAHE kanal Y | OpenCV | `components/detektor/clahe.js` (meniru OpenCV, diuji identik piksel per piksel) |
-| Alarm | disisipkan ke aliran audio WebRTC | diputar langsung di browser (`wake_up.wav`) |
-| Data ke server | video + audio terus-menerus | hanya pesan kecil saat ada kejadian |
+Seluruh pemrosesan video berjalan di browser dengan MediaPipe FaceLandmarker (JavaScript). Video tidak
+pernah dikirim ke server, sehingga pemakaian data kecil dan tidak butuh server relay TURN.
 
-Login/daftar/OTP, mode tamu, penyimpanan ke Neon PostgreSQL, email darurat + lokasi, dan halaman Histori
-tetap ditangani Python dan sama untuk kedua mode. Skema database tidak berubah.
+## Fitur
 
-## Memilih mode
+- Deteksi wajah dengan `@mediapipe/tasks-vision` 0.10.35 (FaceLandmarker, mode VIDEO, satu wajah).
+- **EAR** (Eye Aspect Ratio) untuk mata tertutup, **MAR** (Mouth Aspect Ratio) untuk menguap, dan
+  **sudut garis antar-telinga** untuk kepala miring. Ambang bisa diatur dengan slider (bawaan EAR 0,23,
+  MAR 0,60, sudut 20°, waktu alarm 1 detik).
+- CLAHE pada kanal Y supaya wajah tetap terdeteksi saat pencahayaan redup.
+- Alarm `wake_up.wav` diputar langsung di browser. Layar dijaga tetap menyala selama sesi (Screen Wake Lock).
+- Email darurat ke kontak terdekat setelah mata tertutup 5 detik, menguap 3 detik, atau kepala miring
+  5 detik, paling banyak satu email per 2 menit (kejadian di dalam jeda dikirim sebagai ringkasan).
+- Akun dengan verifikasi OTP email, atau **mode tamu** tanpa akun (histori disimpan di browser, tanpa email).
+- Halaman **Histori**: ringkasan per sesi dan daftar kejadian, dengan filter tanggal dan jenis kejadian.
+- Panel **Pengujian & diagnostik**: waktu proses per frame, FPS, dan unduhan CSV data mentah.
 
-- **Bawaan** diatur lewat `MODE_DETEKSI` di `.env` (lokal) atau Secrets (Streamlit Cloud):
-  `MODE_DETEKSI = "browser"` atau `MODE_DETEKSI = "server"`. Kalau tidak diisi, bawaannya `browser`.
-- **Saat aplikasi berjalan**, mode bisa diganti di sidebar ("Mode deteksi"). Pilihan ini dikunci selama
-  sesi berjalan, jadi kedua mode bisa diuji bergantian pada deployment yang sama tanpa redeploy.
-
-Mode browser tidak mengimpor streamlit-webrtc, aiortc, av, OpenCV, maupun MediaPipe Python, dan tidak
-memanggil API Metered. Paket-paket itu tetap ada di `requirements.txt` karena mode server masih dipakai,
-tetapi versi yang dikunci hanya punya wheel sampai Python 3.11. Di Python 3.12 ke atas paket itu dilewati
-(penanda `python_version` di `requirements.txt`) dan sidebar hanya menawarkan mode browser.
-
-## Cara kerja mode browser
+## Cara kerja
 
 ```
 Ponsel (browser)                                       Server (Streamlit/Python)
@@ -35,230 +30,163 @@ Ponsel (browser)                                       Server (Streamlit/Python)
 kamera → [CLAHE] → FaceLandmarker → EAR/MAR/sudut
        → timer & alarm → anotasi di canvas
                          │ hanya saat ada kejadian:
-                         ├─ mulai     (START)       ──►  start_session() di Neon
-                         ├─ kejadian  (selesai)     ──►  save_session_progress()
+                         ├─ mulai     (START)       ──►  buat sesi di database
+                         ├─ kejadian  (selesai)     ──►  simpan kejadian
                          ├─ email     (ambang lewat)──►  email darurat + tautan lokasi
                          ├─ flush     (jeda 2 mnt)  ──►  email ringkasan yang tertahan
                          └─ selesai   (STOP / kamera mati ≥ 3 dtk) ──► perbarui waktu selesai
 ```
 
-- Setiap pesan memicu satu rerun Streamlit. Tidak ada pesan per frame dan tidak ada autorefresh.
-- Pesan dikirim sebagai antrean bernomor. Python membalas nomor terakhir yang sudah diproses, jadi
+- Tidak ada data per frame yang dikirim ke server. Setiap pesan di atas memicu satu rerun Streamlit.
+- Pesan dikirim sebagai antrean bernomor. Server membalas nomor terakhir yang sudah diproses, jadi
   pesan tidak hilang atau tercatat dua kali, dan dikirim ulang otomatis kalau database sedang gagal.
-- Mode tamu tidak mengirim email. Historinya ditulis komponen langsung ke `localStorage` dengan
-  kunci dan format yang sama seperti sebelumnya (maksimal 10 sesi).
-- Layar dijaga tetap menyala dengan Screen Wake Lock API selama sesi berjalan, kalau browser mendukung.
-- Model (`face_landmarker.task`) dan wasm diunduh dari CDN resmi sekali saja, lalu disimpan di Cache
-  Storage browser. Asalnya (CDN atau cache) terlihat di panel "Pengujian & diagnostik".
+- Model (`face_landmarker.task`) dan wasm diunduh dari CDN resmi sekali saja (±6,9 MB), lalu disimpan
+  di Cache Storage browser untuk sesi-sesi berikutnya.
+- Sesi tamu ditulis komponen langsung ke `localStorage` (maksimal 10 sesi terbaru).
 
-### Berkas
+## Struktur repositori
 
-| Berkas | Isi |
+| Berkas / folder | Isi |
 |---|---|
-| `components/detektor/index.html`, `detektor.js` | komponen Streamlit: kamera, loop deteksi, alarm, wake lock, GPS, antrean pesan, panel pengujian |
-| `components/detektor/logika.js` | indikator + penghitung waktu + aturan pencatatan (salinan `deteksi_kantuk.py`) |
-| `components/detektor/clahe.js` | CLAHE kanal Y tanpa OpenCV.js |
-| `components/detektor/model.js` | pemuatan FaceLandmarker + Cache Storage |
-| `components/detektor/anotasi.js` | gambar titik, garis, dan teks seperti `plot_*` versi lama |
-| `components/detektor/uji_statis.html` | uji statis versi browser (padanan `uji_statis.py`) |
-| `components/detektor/wake_up.wav` | salinan `audio/wake_up.wav` (komponen hanya bisa menyajikan berkas dari foldernya) |
-| `detektor_component.py` | `declare_component` untuk komponen di atas |
-| `mode_browser.py` | sisi Python mode browser: proses pesan, simpan ke Neon, email |
-| `email_darurat.py` | logika email darurat (teks & jeda 2 menit sama dengan versi lama) tanpa OpenCV/MediaPipe |
-| `uji_mode_browser/` | uji kesamaan JS vs Python dan hasilnya |
+| `2_🥱_Deteksi_Kantuk.py` | halaman utama: masuk, daftar + OTP, mode tamu, slider ambang, detektor |
+| `pages/3_🕓_Histori.py` | histori sesi (akun dari database, tamu dari `localStorage`) |
+| `detektor.py` | sisi Python komponen detektor: terima pesan, simpan ke database, email darurat |
+| `email_darurat.py` | teks email darurat, tautan lokasi, dan jeda 2 menit |
+| `database.py` | Neon PostgreSQL: akun, OTP, sesi berkendara, kejadian kantuk |
+| `components/detektor/` | komponen browser (lihat tabel di bawah) |
+| `pengujian/` | uji kesamaan, uji statis, ukur database, versi Python acuan, citra uji, dan hasilnya |
+| `lampiran_skripsi/` | dokumentasi pengujian, tampilan aplikasi, dan gambar untuk naskah |
+
+| `components/detektor/` | Isi |
+|---|---|
+| `index.html`, `detektor.js` | kamera, loop deteksi, alarm, wake lock, GPS, antrean pesan, panel pengujian |
+| `logika.js` | EAR, MAR, sudut kepala, penghitung waktu, alarm, dan aturan pencatatan kejadian |
+| `clahe.js` | CLAHE kanal Y tanpa OpenCV.js |
+| `model.js` | pemuatan FaceLandmarker + Cache Storage |
+| `anotasi.js` | titik landmark, garis, dan teks di atas video |
+| `uji_statis.html`, `uji_statis.js` | uji statis pada citra uji |
+| `wake_up.wav` | suara alarm |
 
 ## Menjalankan di lokal
 
-1. Python 3.10 + Node.js (Node hanya untuk uji kesamaan), lalu:
+1. Python 3.10 ke atas, lalu:
    ```bash
    pip install -r requirements.txt
    ```
-2. Buat `.env` berisi `DATABASE_URL`, `EMAIL_PASSWORD`, `GOOGLE_API_KEY`, `METERED_APP_NAME`,
-   `METERED_API_KEY` (dua terakhir hanya dipakai mode server), dan opsional `MODE_DETEKSI`, `DIAGNOSTIK=1`.
+2. Buat `.env` berisi `DATABASE_URL` (Neon PostgreSQL) dan `EMAIL_PASSWORD` (app password Gmail
+   pengirim `deteksikantuk@gmail.com`).
 3. Jalankan:
    ```bash
    streamlit run "2_🥱_Deteksi_Kantuk.py"
    ```
-4. Buka `http://localhost:8501`. Browser hanya mengizinkan kamera di HTTPS atau `localhost`. Streamlit
-   1.17 belum punya opsi HTTPS, jadi untuk mencoba dari ponsel di jaringan yang sama pakai salah satu:
+4. Buka `http://localhost:8501`. Browser hanya mengizinkan kamera di HTTPS atau `localhost`, dan
+   Streamlit 1.17 belum punya opsi HTTPS. Untuk mencoba dari ponsel di jaringan yang sama:
    - tunnel HTTPS, mis. `cloudflared tunnel --url http://localhost:8501`, lalu buka URL `https://…` di ponsel;
-   - Chrome Android: `chrome://flags/#unsafely-treat-insecure-origin-as-secure`, isi
-     `http://<IP-laptop>:8501`, lalu muat ulang Chrome;
-   - atau langsung deploy ke Streamlit Community Cloud (sudah HTTPS).
+   - atau Chrome Android: `chrome://flags/#unsafely-treat-insecure-origin-as-secure`, isi
+     `http://<IP-laptop>:8501`, lalu muat ulang Chrome.
 
 ## Deploy ke Streamlit Community Cloud
 
-1. Push branch ini ke GitHub: `git push -u origin deteksi-browser`.
-2. Di [share.streamlit.io](https://share.streamlit.io), pilih salah satu:
-   - **app baru** (disarankan, supaya versi lama di `main` tetap jalan): *Create app* → repo
-     `apriadiarzi/deteksi-kantuk-skripsi`, branch `deteksi-browser`, main file `2_🥱_Deteksi_Kantuk.py`;
-   - atau ubah branch app yang sudah ada di *Settings*.
-3. *Advanced settings* → **Python 3.11** (atau 3.10 kalau masih ada) → Secrets: salin isi `.env` dalam
-   format TOML, mis.
+1. Push ke GitHub.
+2. Di [share.streamlit.io](https://share.streamlit.io): *Create app* → repo
+   `apriadiarzi/deteksi-kantuk-skripsi-js`, branch `main`, main file `2_🥱_Deteksi_Kantuk.py`.
+   Versi Python bebas (3.10–3.14).
+3. *Advanced settings* → Secrets:
    ```toml
    DATABASE_URL = "postgresql://…"
    EMAIL_PASSWORD = "…"
-   GOOGLE_API_KEY = "…"
-   METERED_APP_NAME = "…"
-   METERED_API_KEY = "…"
-   MODE_DETEKSI = "browser"
    ```
-4. Versi Python hanya bisa dipilih saat app dibuat. Reboot atau push tidak mengubahnya; untuk menggantinya,
-   catat Secrets, hapus app, lalu deploy ulang. Cek baris `Using Python 3.x.y` di awal log. Kalau Streamlit
-   Cloud memakai Python 3.12 ke atas (bawaannya sekarang versi terbaru), app tetap terpasang dan mode browser
-   berjalan, tetapi mode server tidak tersedia, jadi pembandingan dengan mode server butuh Python 3.11.
 
 ## Pengujian
 
-### Uji kesamaan logika (JS vs Python)
+### Uji langsung (panel Pengujian & diagnostik)
+
+Nilai EAR, MAR, sudut kepala, dan lama tiap kondisi tampil di atas video. Panel **Pengujian &
+diagnostik** di bawah video menampilkan:
+
+- waktu proses per frame, yaitu deteksi FaceLandmarker + perhitungan EAR/MAR/sudut: rata-rata, median,
+  P95, minimum, dan maksimum (nearest-rank). 10 frame pertama tiap sesi diabaikan sebagai pemanasan;
+- baris terpisah untuk deteksi saja, CLAHE, dan total termasuk CLAHE;
+- FPS, resolusi frame, delegate (CPU/GPU), status CLAHE, dan asal model (CDN atau cache);
+- tombol **Unduh CSV** berisi data mentah per frame (pemisah `;`, desimal koma, frame pemanasan ditandai);
+- pilihan CLAHE on/off dan delegate CPU/GPU (bawaannya CLAHE aktif, CPU).
+
+Waktu diukur dengan `performance.now()`, yang dibulatkan browser (Chrome ±0,1 ms, Safari/Firefox ±1 ms).
+
+### Uji statis
+
+Setelah halaman aplikasi dibuka sekali, buka `/component/detektor.detektor/uji_statis.html` di alamat
+yang sama (mis. `http://localhost:8501/component/detektor.detektor/uji_statis.html`), pilih citra di
+`pengujian/citra_uji/`, lalu **Proses**. Hasilnya bisa diunduh sebagai CSV. Opsional, pilih
+`pengujian/hasil_uji_statis/hasil_uji_statis.csv` untuk membandingkan dengan versi Python.
+
+### Uji kesamaan logika dengan versi Python
+
+Logika di `components/detektor/` diterjemahkan dari versi Python sebelumnya
+(`pengujian/deteksi_kantuk.py`, MediaPipe Face Mesh + OpenCV). Uji ini membandingkan keduanya langsung:
+indikator dari 3.000 set landmark acak, logika per frame dari ±150 ribu frame skenario acak (termasuk
+wajah hilang, STOP/START, dan slider yang digeser), teks email dan jeda 2 menit, serta CLAHE piksel per
+piksel. Butuh Python ≤ 3.11 dan Node.js:
 
 ```bash
-python uji_mode_browser/uji_kesamaan.py
+pip install -r pengujian/requirements.txt
+python pengujian/uji_kesamaan.py
 ```
 
-Membandingkan kode JS mode browser dengan kode Python versi lama secara langsung: indikator dari 3.000 set
-landmark acak, logika per frame dari ±150 ribu frame skenario acak (termasuk wajah hilang, STOP/START, dan
-slider yang digeser), teks email dan jeda 2 menit, serta CLAHE pada citra uji dan foto lampiran. Hasil
-terakhir ada di [`uji_mode_browser/hasil_uji_kesamaan.txt`](uji_mode_browser/hasil_uji_kesamaan.txt).
+Hasil terakhir: **semua identik**, lihat [`pengujian/hasil_uji_kesamaan.txt`](pengujian/hasil_uji_kesamaan.txt).
 
-### Uji statis (Tabel hasil citra uji)
+### Lainnya
 
-Buka `http://localhost:8501/component/detektor_component.detektor/uji_statis.html` saat aplikasi berjalan.
-Bisa juga lewat `python -m http.server` dari folder repo, lalu buka
-`http://localhost:8000/components/detektor/uji_statis.html`. Pilih keenam berkas `test-*.jp*g` dan,
-opsional, `hasil_uji_statis/hasil_uji_statis.csv` untuk perbandingan dengan versi lama. Hasilnya bisa
-diunduh sebagai CSV dengan format yang sama seperti `hasil_uji_statis.csv`.
+- `python pengujian/uji_statis.py`: uji statis versi Python, hasil di `pengujian/hasil_uji_statis/`.
+- `python pengujian/ukur_db.py`: waktu handshake dan query ke database (baris uji di-rollback).
+- `pengujian/test_deteksi_statis*.ipynb`: notebook eksplorasi titik landmark.
 
-### Uji langsung (Tabel 3.12 dan 3.13)
+## Pemakaian data
 
-Nilai EAR, MAR, sudut, dan lama tiap kondisi tampil di layar dengan posisi, warna, dan teks yang sama
-seperti versi lama. Panel **Pengujian & diagnostik** di bawah video menampilkan:
+Hasil pengukuran dengan data seluler, dibandingkan dengan versi sebelumnya yang mengirim video ke server
+lewat streamlit-webrtc dan relay TURN Metered:
 
-- waktu proses per frame, yaitu deteksi FaceLandmarker + perhitungan EAR/MAR/sudut. Statistiknya rata-rata,
-  median, P95, minimum, dan maksimum (metode nearest-rank seperti `diagnostik.py`), dan 10 frame pertama
-  tiap sesi diabaikan;
-- baris terpisah untuk deteksi saja, CLAHE, dan total termasuk CLAHE;
-- FPS (sekarang dan rata-rata sesi), resolusi frame, delegate (CPU/GPU), status CLAHE, asal model;
-- tombol **Unduh CSV** berisi data mentah per frame (pemisah `;`, desimal koma). Frame pemanasan
-  ditandai di kolom `pemanasan`;
-- pilihan CLAHE on/off dan delegate CPU/GPU untuk pengujian. Bawaannya CLAHE aktif dan CPU, yang paling
-  mirip versi lama.
+| | Versi browser (repo ini) | Versi Python (sebelumnya) |
+|---|---|---|
+| Durasi uji | ±2 menit | ±1,5 menit |
+| Data seluler terpakai | **±10 MB** | ±35 MB |
+| Relay TURN Metered | tidak dipakai sama sekali | dipakai |
 
-Catatan pengukuran waktu: `performance.now()` dibulatkan browser (Chrome ±0,1 ms, Safari/Firefox ±1 ms).
-Versi lama (mode server, `DIAGNOSTIK=1`) mengukur seluruh callback, termasuk konversi frame, CLAHE, dan
-menggambar anotasi. Bandingkan dengan baris "Total termasuk CLAHE", jangan dengan "Deteksi + indikator".
+Angka versi browser di atas sudah termasuk unduhan model dan wasm sekali di awal:
 
-## Mengukur pemakaian data secara adil
-
-Tujuannya membandingkan MB per menit kedua mode dalam kondisi yang sama.
-
-**Persiapan (sama untuk kedua mode)**
-1. Ponsel, browser, posisi ponsel, pencahayaan, dan lokasi yang sama. Tutup tab dan aplikasi lain.
-   Matikan pembaruan otomatis, sinkronisasi foto/cloud, dan hotspot.
-2. **Matikan Wi-Fi**, pakai data seluler saja.
-3. Login dengan akun yang sama (atau sama-sama mode tamu).
-
-**Pisahkan unduhan sekali di awal**
-
-Pada sesi pertama mode browser, browser mengunduh pustaka dan model sekali saja. Ukuran yang diukur dari
-CDN (terkompresi):
-
-| Berkas | Ukuran transfer |
+| Berkas (dari CDN, terkompresi) | Ukuran |
 |---|---|
 | `vision_wasm_internal.wasm` | ±2,99 MB |
 | `face_landmarker.task` (model) | ±3,76 MB |
 | `vision_wasm_internal.js` + `vision_bundle.mjs` | ±0,11 MB |
 | **Total sekali unduh** | **±6,9 MB** |
 
-Mode server juga punya unduhan sekali, yaitu kode komponen streamlit-webrtc. Kedua mode sama-sama
-memuat halaman Streamlit itu sendiri. Supaya yang diukur hanya pemakaian per menit:
+Sesi berikutnya memakai model dari cache browser, sehingga pemakaiannya lebih kecil lagi. Sisa lalu
+lintasnya hanya websocket Streamlit: ±14 KB per pesan kejadian pada uji lokal.
 
-1. Lakukan **sesi pemanasan** dulu untuk tiap mode: buka aplikasi, tekan START, tunggu deteksi berjalan,
-   lalu STOP. Di mode browser, panel diagnostik harus menunjukkan "Model & wasm … dari cache browser"
-   saat dimuat ulang.
-2. Kalau ingin mencatat unduhan sekali secara terpisah: hapus data situs dulu (Chrome › Setelan ›
-   Setelan situs › Data situs › hapus untuk domain aplikasi), lalu ukur sesi pertama itu sendiri.
+Untuk pengukuran ulang yang adil: matikan Wi-Fi, pakai ponsel dan posisi yang sama, catat pemakaian data
+aplikasi browser (Android: Setelan › Jaringan › Penggunaan data) sebelum dan sesudah sesi dengan durasi
+dan skenario yang sama, ulangi beberapa kali, dan pisahkan sesi pertama (yang mengunduh model) dari
+sesi-sesi berikutnya.
 
-**Pengukuran per sesi**
-1. Tentukan durasi tetap, mis. 10 menit, dengan skenario yang sama, mis. tiap menit tutup mata 3 detik
-   dan menguap sekali.
-2. Sebelum mulai, catat:
-   - pemakaian data browser di ponsel. Android: Setelan › Jaringan › Penggunaan data › aplikasi browser
-     (lebih teliti daripada sisa kuota total). iOS: Setelan › Seluler, catat angka Safari/Chrome;
-   - sisa kuota operator, kalau ingin;
-   - dashboard Metered (Usage).
-3. Jalankan sesi, lalu STOP tepat di akhir durasi.
-4. Catat lagi angka yang sama. Dashboard Metered bisa terlambat beberapa menit, jadi tunggu sebelum
-   mencatatnya.
-5. Ulangi minimal 3 kali per mode secara bergantian (server, browser, server, browser, …) supaya
-   perubahan kondisi jaringan tidak hanya mengenai satu mode.
-6. Hitung `MB/menit = (sesudah − sebelum) / durasi`. Kalau sesi itu juga memuat unduhan sekali,
-   kurangi dengan angka di tabel di atas.
-
-**Hal yang perlu dicatat di skripsi**
-- Mode server mengirim video **dan audio mikrofon** ke server, lalu menerima video beranotasi dan audio
-  balik. Resolusinya bisa diturunkan otomatis oleh WebRTC saat sinyal jelek.
-- Kuota Metered hanya terpakai kalau koneksi WebRTC lewat relay TURN. Kalau jalur langsung (STUN)
-  berhasil, Metered bisa tetap 0 walau data seluler terpakai. Jenis jalurnya terlihat di
-  `chrome://webrtc-internals` (candidate pair `relay` vs `srflx`/`host`). Halaman yang sama juga
-  menampilkan `bytesSent`/`bytesReceived` WebRTC secara tepat.
-- Mode browser tidak memakai Metered sama sekali. Sisa lalu lintasnya: websocket Streamlit (rerun saat
-  ada pesan, ±14 KB per pesan pada uji lokal), ping websocket, dan unduhan sekali di atas. Pada uji lokal,
-  sesi 20 detik dengan 5 pesan memakai ±75 KB websocket.
-- Rerun mode server terjadi tiap 2 detik (autorefresh), dan setiap rerun juga mengirim ulang elemen
-  halaman. Lalu lintas ini ikut terhitung di mode server.
-
-## Perbedaan perilaku dengan versi lama
+## Catatan perbedaan dengan versi Python
 
 Rumus, indeks landmark, ambang, penghitung waktu, aturan pencatatan, teks di layar, dan teks email
-identik (lihat uji kesamaan). Perbedaan yang tersisa:
+identik dengan versi Python (lihat uji kesamaan). Perbedaan yang tersisa:
 
-1. **Model landmark.** Versi lama memakai Face Mesh legacy (`refine_landmarks=False`, 468 titik). Mode
-   browser memakai FaceLandmarker (478 titik). Indeks 0–467 sama, tapi bobot modelnya berbeda. Pada citra
-   uji, EAR mata terbuka mirip (0,28–0,39), sedangkan EAR mata tertutup jauh lebih rendah (±0,05–0,08
-   vs ±0,16–0,20). Pada `test-head-tilt.jpeg` (mata terpejam) mode browser ikut menyimpulkan "mata
-   tertutup", yang tidak terdeteksi versi lama. Ambang 0,23 tetap memisahkan kedua kondisi.
-2. **Frame masukan.** Versi lama memproses frame hasil kompresi WebRTC. Mode browser memproses frame
-   kamera asli dengan constraint yang sama (kamera depan, tinggi 360, 15 fps). Mikrofon tidak diminta.
-3. **STOP langsung menyimpan.** Versi lama menutup sesi setelah kamera mati ≥ 3 detik (dicek tiap
-   2 detik), jadi waktu selesai di database ±3–5 detik lebih lambat. Kamera yang mati sendiri ≥ 3 detik
-   tetap menutup sesi di kedua mode.
-4. **Tanpa checkpoint berkala.** Versi lama memperbarui waktu selesai sesi tiap 15 detik. Mode browser
-   hanya mengirim pesan saat ada kejadian, jadi kalau tab ditutup paksa tanpa STOP, waktu selesai sesi
-   = waktu pesan terakhir.
-5. **Lokasi GPS** dikirim bersama pesan email, tidak lagi lewat komponen geolocation terpisah, jadi
-   tidak ada rerun tiap kali posisi berubah.
-6. **Perbaikan di kedua mode:** penghitung waktu kini di-reset pada frame pertama tiap sesi kamera.
-   Sebelumnya jeda sejak frame terakhir sesi sebelumnya (atau sejak halaman dibuka) bisa langsung terhitung
-   sebagai lama mata tertutup/kepala miring kalau frame pertama sesi sudah dalam kondisi itu.
-7. **Pembulatan numerik.** `atan2` dan `pow(x, 0.5)` di pustaka C bisa berbeda di digit terakhir
+1. **Model landmark.** Versi Python memakai Face Mesh legacy (468 titik), versi ini FaceLandmarker
+   (478 titik). Indeks 0–467 sama, tetapi bobot modelnya berbeda. Pada citra uji, EAR mata terbuka mirip
+   (0,28–0,39), sedangkan EAR mata tertutup jauh lebih rendah (±0,05–0,08 vs ±0,16–0,20). Pada
+   `test-head-tilt.jpeg` (mata terpejam) versi ini ikut menyimpulkan "mata tertutup", yang tidak
+   terdeteksi versi Python. Ambang 0,23 tetap memisahkan kedua kondisi.
+2. **Frame masukan.** Versi Python memproses frame hasil kompresi WebRTC; versi ini memproses frame kamera
+   asli (kamera depan, tinggi 360 px, 15 fps). Mikrofon tidak diminta.
+3. **STOP langsung menyimpan.** Versi Python menutup sesi setelah kamera mati ≥ 3 detik, jadi waktu
+   selesai di database ±3–5 detik lebih lambat. Kamera yang mati sendiri ≥ 3 detik tetap menutup sesi.
+4. **Tanpa simpan berkala.** Versi Python memperbarui waktu selesai sesi tiap 15 detik. Versi ini hanya
+   mengirim pesan saat ada kejadian, jadi kalau tab ditutup paksa tanpa STOP, waktu selesai sesi = waktu
+   pesan terakhir.
+5. **Penghitung waktu di-reset di awal sesi.** Di versi Python, jeda sejak sesi sebelumnya bisa langsung
+   terhitung sebagai lama mata tertutup/kepala miring pada frame pertama sesi baru. Ini diperbaiki.
+6. **Pembulatan numerik.** `atan2` dan `pow(x, 0.5)` di pustaka C bisa berbeda di digit terakhir
    (±1e-14) dari JavaScript. Ini tidak mengubah teks di layar maupun keputusan.
-
-<!-- # Driver Drowsines Detection using Mediapipe in Python
-
-**This repository contains code for the blog post [Driver Drowsines Detection using Mediapipe in Python](https://learnopencv.com/driver-drowsiness-detection-using-mediapipe-in-python/)**.
-
-In this post, we will:
-
-* Learn how to detect eye landmarks using the Mediapipe Face Mesh solution pipeline in python.
-* Introduce and demonstrate the Eye Aspect Ratio (EAR) technique.
-* Create a Drowsiness Detection web application using streamlit.
-* Use streamlit-webrtc to help transmit real-time video/audio streams over the network.
-* Deploy it on a cloud service.
-
-[<img src="https://learnopencv.com/wp-content/uploads/2022/07/download-button-e1657285155454.png" alt="download" width="200">](https://www.dropbox.com/scl/fo/5uqodfo3b668xbtqzqqt0/h?dl=1&rlkey=cb2gkzoeobpvyv74299rbdg8c)
-
-<img src = 'app_image/page_SS.jpg'>
-
-# AI Courses by OpenCV
-
-Want to become an expert in AI? [AI Courses by OpenCV](https://opencv.org/courses/) is a great place to start.
-
-<a href="https://opencv.org/courses/">
-<p align="center">
-<img src="https://learnopencv.com/wp-content/uploads/2023/01/AI-Courses-By-OpenCV-Github.png">
-</p>
-</a> -->
-#   d e t e k s i - k a n t u k - s k r i p s i - j s  
- #   d e t e k s i - k a n t u k - s k r i p s i - j s  
- 

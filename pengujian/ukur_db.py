@@ -1,12 +1,16 @@
-"""Ukur waktu handshake dan query ke database Neon PostgreSQL (python ukur_db.py [--n N] [--user NAMA])."""
+"""Ukur waktu handshake dan query ke database Neon PostgreSQL (python pengujian/ukur_db.py [--n N] [--user NAMA])."""
 import argparse
+import os
 import statistics
+import sys
 import time
 
 import psycopg2
 
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 # Kredensial dan SQL diambil dari modul database aplikasi.
-from database import DATABASE_URL, _TOTALS_FROM_EVENTS
+from database import DATABASE_URL, _TOTALS_FROM_EVENTS  # noqa: E402
 
 SELECT_HISTORI = '''
     SELECT s.id, s.start_time, s.end_time, s.duration,

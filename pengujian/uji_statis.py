@@ -1,4 +1,7 @@
-"""Uji statis EAR, MAR, dan sudut kepala pada citra uji; hasil di folder hasil_uji_statis."""
+"""Uji statis versi Python (Face Mesh): EAR, MAR, dan sudut kepala pada citra_uji/, hasil di hasil_uji_statis/.
+
+Butuh paket di pengujian/requirements.txt. Jalankan dari folder repo: python pengujian/uji_statis.py
+"""
 import os
 import sys
 import csv
@@ -7,10 +10,10 @@ import cv2
 import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, HERE)
-os.chdir(HERE)  # supaya .env project terbaca oleh deteksi_kantuk/database
+sys.path[:0] = [HERE, os.path.dirname(HERE)]  # deteksi_kantuk.py + database.py
+os.chdir(HERE)
 
-from deteksi_kantuk import (  # noqa: E402  (fungsi asli aplikasi)
+from deteksi_kantuk import (  # noqa: E402  (fungsi versi Python)
     get_mediapipe_app, calculate_avg_ear, get_mar, get_head_tilt_angle,
     enhance_low_light, plot_eye_landmarks, plot_mouth_landmarks,
     plot_head_tilt, plot_text, MOUTH_IDXS,
@@ -120,7 +123,7 @@ def main():
     os.makedirs(OUT_DIR, exist_ok=True)
     rows = []
     for name, ket in FILES:
-        res = analyse(os.path.join(HERE, name))
+        res = analyse(os.path.join(HERE, "citra_uji", name))
         cv2.imwrite(os.path.join(OUT_DIR, "uji_" + os.path.splitext(name)[0] + ".jpg"), draw(res),
                     [cv2.IMWRITE_JPEG_QUALITY, 92])
         if not res["found"]:

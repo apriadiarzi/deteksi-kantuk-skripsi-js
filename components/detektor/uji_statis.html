@@ -35,22 +35,22 @@
 </head>
 <body>
 <main>
-  <h1>Uji statis mode browser</h1>
-  <p>Padanan <code>uji_statis.py</code>: FaceLandmarker (MediaPipe JS) dijalankan pada citra uji, lalu EAR, MAR, dan sudut kepala dihitung dengan rumus yang sama seperti aplikasi. Hasil bisa dibandingkan dengan <code>hasil_uji_statis/hasil_uji_statis.csv</code> dari versi lama.</p>
+  <h1>Uji statis</h1>
+  <p>Padanan <code>pengujian/uji_statis.py</code>: FaceLandmarker (MediaPipe JS) dijalankan pada citra uji, lalu EAR, MAR, dan sudut kepala dihitung dengan rumus yang sama seperti aplikasi. Hasil bisa dibandingkan dengan <code>pengujian/hasil_uji_statis/hasil_uji_statis.csv</code> dari versi Python (Face Mesh).</p>
 
   <div class="opsi">
     <label>Citra uji <input type="file" id="berkas" accept="image/*" multiple></label>
-    <label>CSV versi lama (opsional) <input type="file" id="csv-lama" accept=".csv,text/csv"></label>
+    <label>CSV versi Python (opsional) <input type="file" id="csv-lama" accept=".csv,text/csv"></label>
     <label><input type="checkbox" id="opsi-clahe" checked> CLAHE</label>
     <label>Delegate <select id="opsi-delegate"><option value="CPU">CPU</option><option value="GPU">GPU</option></select></label>
     <button class="utama" id="tombol-proses" disabled>Proses</button>
     <button id="tombol-csv" disabled>Unduh CSV</button>
   </div>
-  <p id="status">Pilih citra uji (mis. keenam berkas test-*.jpg di folder repo).</p>
+  <p id="status">Pilih citra uji (mis. keenam berkas test-*.jp*g di pengujian/citra_uji).</p>
 
   <div class="gulir"><table id="tabel"></table></div>
   <div id="bagian-banding" hidden>
-    <h2>Perbandingan dengan versi lama (Face Mesh Python)</h2>
+    <h2>Perbandingan dengan versi Python (Face Mesh)</h2>
     <div class="gulir"><table id="tabel-banding"></table></div>
   </div>
   <h2 id="judul-galeri" hidden>Citra beranotasi</h2>

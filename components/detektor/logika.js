@@ -1,10 +1,10 @@
 /*
- * Logika deteksi kantuk mode browser.
+ * Logika deteksi kantuk: EAR, MAR, sudut kepala, penghitung waktu, alarm, dan pencatatan kejadian.
  *
- * Disalin dari deteksi_kantuk.py (fungsi indikator + VideoFrameHandler.process) supaya
- * keputusan mode browser sama dengan mode server: rumus, indeks landmark, urutan cek,
- * penghitung waktu, durasi minimum, dan teks di layar. Kesamaannya diuji otomatis oleh
- * uji_mode_browser/uji_kesamaan.py terhadap kode Python aslinya.
+ * Diterjemahkan dari versi Python (pengujian/deteksi_kantuk.py: fungsi indikator +
+ * VideoFrameHandler.process), sehingga rumus, indeks landmark, urutan cek, penghitung waktu,
+ * durasi minimum, dan teks di layar sama persis. Kesamaannya diuji otomatis oleh
+ * pengujian/uji_kesamaan.py.
  *
  * Berkas ini dipakai di browser (window.Logika) dan di Node (require) untuk pengujian.
  */
@@ -28,11 +28,11 @@
   const MIN_DURATION_YAWN = 1.0;
   const MIN_DURATION_TILT = 1.5;
 
-  // Nama warna; anotasi.js menerjemahkannya ke warna canvas (versi lama memakai BGR OpenCV).
+  // Nama warna; anotasi.js menerjemahkannya ke warna canvas (versi Python memakai BGR OpenCV).
   const RED = "RED", GREEN = "GREEN", ORANGE = "ORANGE", YELLOW = "YELLOW";
 
   // ─── Pembulatan & format ala Python ──────────────────────────────────────────
-  // Teks di layar versi lama memakai round() dan format ".1f" Python, yang membulatkan
+  // Teks di layar versi Python memakai round() dan format ".1f" Python, yang membulatkan
   // nilai desimal persis dengan aturan half-even. toFixed() JavaScript membulatkan ke atas
   // saat seri, jadi dibuat versi yang sama dengan Python.
 
@@ -215,7 +215,7 @@
     const ALM_txt_pos = [pad, Math.trunc(frameH / 2 - line * 2)];
 
     if (ind) {
-      // ── EAR ── (titik mata memakai warna dari frame sebelumnya, seperti versi lama)
+      // ── EAR ── (titik mata memakai warna dari frame sebelumnya, seperti versi Python)
       const EAR = ind.ear;
       gambar.push({ op: "mata", kiri: ind.eyeCoords[0], kanan: ind.eyeCoords[1], warna: st.COLOR });
 
@@ -332,7 +332,7 @@
       teks(`TILT  : ${pyStr(pyRound(st.TILT_TIME, 3))} Secs`, TILT_TIME_txt_pos, tiltColor);
     } else {
       // Wajah hilang: penghitung waktu dan alarm kembali ke nol. Penanda awal kejadian dan
-      // status email TIDAK di-reset (sama seperti versi lama).
+      // status email TIDAK di-reset (sama seperti versi Python).
       st.start_time = t; st.DROWSY_TIME = 0.0; st.COLOR = GREEN; st.play_alarm = false;
       st.YAWN_start_time = t; st.YAWN_TIME = 0.0; st.is_yawning = false; st.yawn_alarm = false;
       st.TILT_start_time = t; st.TILT_TIME = 0.0; st.is_tilting = false; st.tilt_alarm = false;
@@ -342,7 +342,7 @@
     return { gambar, kejadian, email, alarm };
   };
 
-  // ─── Statistik waktu proses (sama dengan diagnostik.FrameTimer.summary) ──────
+  // ─── Statistik waktu proses (persentil nearest-rank) ────────────────────────
 
   function ringkasStatistik(nilai) {
     if (!nilai.length) return null;

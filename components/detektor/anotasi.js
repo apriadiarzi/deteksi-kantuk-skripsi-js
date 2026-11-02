@@ -1,6 +1,6 @@
 /*
  * Menggambar anotasi hasil Logika.prosesFrame() ke canvas dengan posisi, ukuran, dan warna yang
- * mengikuti plot_* di deteksi_kantuk.py (cv2.circle, cv2.line, cv2.putText).
+ * mengikuti plot_* di pengujian/deteksi_kantuk.py (cv2.circle, cv2.line, cv2.putText).
  */
 (function (root) {
   "use strict";

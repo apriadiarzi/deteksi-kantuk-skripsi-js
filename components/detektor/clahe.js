@@ -1,5 +1,5 @@
 /*
- * CLAHE pada kanal Y (YUV) tanpa OpenCV.js — padanan enhance_low_light() di deteksi_kantuk.py:
+ * CLAHE pada kanal Y (YUV) tanpa OpenCV.js — padanan enhance_low_light() di pengujian/deteksi_kantuk.py:
  *   yuv = cv2.cvtColor(frame, cv2.COLOR_BGR2YUV)
  *   yuv[:, :, 0] = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8)).apply(yuv[:, :, 0])
  *   frame = cv2.cvtColor(yuv, cv2.COLOR_YUV2BGR)
@@ -7,7 +7,7 @@
  * Mengikuti implementasi OpenCV (color_yuv.simd.hpp dan clahe.cpp): koefisien YUV fixed-point
  * 14 bit, skala clipLimit, redistribusi kelebihan histogram, padding BORDER_REFLECT_101, dan
  * interpolasi bilinear dengan aritmetika float32. Hasilnya dibandingkan piksel per piksel
- * dengan cv2 oleh uji_mode_browser/uji_kesamaan.py.
+ * dengan cv2 oleh pengujian/uji_kesamaan.py.
  *
  * Dipakai di browser (window.Clahe) dan di Node (require) untuk pengujian.
  */

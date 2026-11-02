@@ -1,21 +1,8 @@
-cryptography
-pyOpenSSL
-# Paket mode server (versi lama: streamlit-webrtc + MediaPipe Python). Versi yang dikunci
-# hanya punya wheel sampai Python 3.11; di Python yang lebih baru paket ini dilewati dan
-# aplikasi hanya menyediakan mode browser.
-aiortc==1.9.0; python_version < "3.12"
-av==12.3.0; python_version < "3.12"
-numpy<2; python_version < "3.12"
-opencv-contrib-python<5; python_version < "3.12"
-pydub; python_version < "3.12"
-mediapipe==0.10.11; python_version < "3.12"
 streamlit==1.17.0
-streamlit_webrtc==0.43.4; python_version < "3.12"
+# Streamlit 1.17 butuh Altair 4 (Altair 5 tidak kompatibel).
+altair==4.0
 # Streamlit 1.17 masih mengimpor modul imghdr yang dihapus di Python 3.13.
 standard-imghdr; python_version >= "3.13"
-streamlit-nested-layout==0.1.1
 streamlit-autorefresh
-altair==4.0
-requests
 python-decouple
 psycopg2-binary

@@ -1,0 +1,8 @@
+# Paket untuk versi Python (deteksi_kantuk.py), uji_kesamaan.py, uji_statis.py, dan notebook.
+# Tidak dibutuhkan aplikasi. mediapipe 0.10.11 hanya tersedia sampai Python 3.11.
+-r ../requirements.txt
+mediapipe==0.10.11
+opencv-contrib-python<5
+numpy<2
+requests
+matplotlib

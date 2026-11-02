@@ -1,8 +1,9 @@
-"""Mode browser: deteksi kantuk berjalan di komponen JS (components/detektor), video tidak
-dikirim ke server.
+"""Sisi Python komponen detektor kantuk (components/detektor).
 
-Komponen hanya mengirim pesan kecil saat ada kejadian, dan setiap pesan memicu satu rerun:
-  mulai     — START ditekan (baris sesi dibuat di database, seperti start_session versi lama)
+Kamera, deteksi wajah (MediaPipe FaceLandmarker), EAR/MAR/sudut kepala, penghitung waktu, alarm,
+dan anotasi berjalan di browser, jadi video tidak pernah dikirim ke server. Komponen hanya
+mengirim pesan kecil saat ada kejadian, dan setiap pesan memicu satu rerun:
+  mulai     — START ditekan (baris sesi dibuat di database)
   kejadian  — satu kejadian kantuk selesai dan lolos durasi minimum
   email     — ambang email terlewati (5 dtk mata, 3 dtk menguap, 5 dtk kepala)
   flush     — jeda email 2 menit habis dan ada kejadian yang ditahan
@@ -10,13 +11,24 @@ Komponen hanya mengirim pesan kecil saat ada kejadian, dan setiap pesan memicu s
 Pesan dikirim sebagai antrean bernomor urut. Nomor terakhir yang sudah diproses dikembalikan
 lewat argumen `ack`, jadi pesan tidak hilang atau terproses dua kali walaupun rerun terpotong.
 """
+import mimetypes
+import os
 from datetime import datetime, timedelta
 
 import streamlit as st
+import streamlit.components.v1 as components
 
 from database import start_session, save_session_progress, GUEST_STORAGE_KEY
-from detektor_component import detektor_component
 from email_darurat import EmailDarurat, PESAN_EMAIL
+
+# Registry Windows kadang memetakan .js ke text/plain; tanpa ini skrip komponen tidak dijalankan
+# browser saat aplikasi dijalankan lokal di Windows.
+mimetypes.add_type("application/javascript", ".js")
+
+_komponen = components.declare_component(
+    "detektor",
+    path=os.path.join(os.path.dirname(os.path.abspath(__file__)), "components", "detektor"),
+)
 
 KEY = "detektor"
 
@@ -27,7 +39,7 @@ def waktu_wib(epoch_ms):
 
 
 def format_kejadian(p):
-    """Baris kejadian untuk database, dengan format yang sama seperti pending_events versi lama."""
+    """Baris kejadian untuk tabel drowsiness_events."""
     return {
         'event_type': p['event_type'],
         'event_time': waktu_wib(p['mulai_ms']).strftime('%Y-%m-%d %H:%M:%S'),
@@ -37,45 +49,41 @@ def format_kejadian(p):
 
 def _state():
     ss = st.session_state
-    if "browser_ack" not in ss:
-        ss["browser_ack"] = {"id": None, "seq": 0}
-    if "browser_sesi" not in ss:
-        ss["browser_sesi"] = {}          # id sesi dari komponen -> {"db_id", "kejadian"}
-    if "browser_sesi_aktif" not in ss:
-        ss["browser_sesi_aktif"] = None  # id sesi yang sedang berjalan
+    if "detektor_ack" not in ss:
+        ss["detektor_ack"] = {"id": None, "seq": 0}
+    if "detektor_sesi" not in ss:
+        ss["detektor_sesi"] = {}          # id sesi dari komponen -> {"db_id", "kejadian"}
+    if "detektor_sesi_aktif" not in ss:
+        ss["detektor_sesi_aktif"] = None  # id sesi yang sedang berjalan
     if "email_darurat" not in ss:
         ss["email_darurat"] = EmailDarurat()
-    if "browser_info" not in ss:
-        ss["browser_info"] = []          # pemberitahuan yang ditampilkan di bawah komponen
+    if "detektor_info" not in ss:
+        ss["detektor_info"] = []          # pemberitahuan yang ditampilkan di bawah komponen
     return ss
-
-
-def sesi_aktif():
-    return bool(st.session_state.get("browser_sesi_aktif"))
 
 
 def tutup_sesi_aktif(is_guest):
     """Dipanggil saat Keluar: perbarui waktu selesai sesi yang masih berjalan."""
     ss = _state()
-    uid = ss["browser_sesi_aktif"]
+    uid = ss["detektor_sesi_aktif"]
     if not uid:
         return
-    rec = ss["browser_sesi"].get(uid)
+    rec = ss["detektor_sesi"].get(uid)
     if not is_guest and rec and rec["db_id"] is not None:
         try:
             save_session_progress(rec["db_id"], [])
         except Exception as e:
             print(f"Gagal menyimpan sesi saat keluar: {e}")
-    ss["browser_sesi_aktif"] = None
+    ss["detektor_sesi_aktif"] = None
 
 
-def _catat_diagnostik(p):
-    """Ringkasan waktu proses dari browser dicetak ke log, seperti FrameTimer versi lama."""
+def _catat_waktu_proses(p):
+    """Ringkasan waktu proses per frame dari browser dicetak ke log aplikasi."""
     r = p.get("ringkasan") or {}
     s = r.get("proses")
     if s:
-        print(f"[DIAGNOSTIK] mode browser ({r.get('delegate')}, CLAHE {'on' if r.get('clahe') else 'off'}): "
-              f"waktu proses frame n={s['n']} rata-rata={s['rata_rata']:.1f} ms median={s['median']:.1f} ms "
+        print(f"[WAKTU PROSES] ({r.get('delegate')}, CLAHE {'on' if r.get('clahe') else 'off'}): "
+              f"n={s['n']} rata-rata={s['rata_rata']:.1f} ms median={s['median']:.1f} ms "
               f"p95={s['p95']:.1f} ms maks={s['maks']:.1f} ms fps={r.get('fps')}", flush=True)
 
 
@@ -85,7 +93,7 @@ def _proses_satu(p, user, is_guest, notifier, info):
     uid = p.get("sesi")
     if not uid:
         return
-    rec = ss["browser_sesi"].setdefault(uid, {"db_id": None, "kejadian": 0})
+    rec = ss["detektor_sesi"].setdefault(uid, {"db_id": None, "kejadian": 0})
 
     def sesi_db():
         if not is_guest and rec["db_id"] is None:
@@ -94,8 +102,8 @@ def _proses_satu(p, user, is_guest, notifier, info):
 
     if jenis == "mulai":
         sesi_db()
-        ss["browser_sesi_aktif"] = uid
-        # Versi lama memanggil flush_held_emails() di setiap frame, termasuk frame pertama sesi baru.
+        ss["detektor_sesi_aktif"] = uid
+        # Email ringkasan yang masih tertahan dari sesi sebelumnya dikirim saat sesi baru dimulai.
         notifier.flush_held_emails()
 
     elif jenis == "kejadian":
@@ -124,9 +132,9 @@ def _proses_satu(p, user, is_guest, notifier, info):
             ss["guest_history_dirty"] = True
         elif rec["db_id"] is not None:
             save_session_progress(rec["db_id"], [])
-        if ss["browser_sesi_aktif"] == uid:
-            ss["browser_sesi_aktif"] = None
-        _catat_diagnostik(p)
+        if ss["detektor_sesi_aktif"] == uid:
+            ss["detektor_sesi_aktif"] = None
+        _catat_waktu_proses(p)
         info.append(("success", f"Sesi tersimpan! {rec['kejadian']} kejadian kantuk tercatat."))
 
 
@@ -135,7 +143,7 @@ def _proses_nilai(nilai, user, is_guest, notifier, info):
     if not isinstance(nilai, dict):
         return
     ss = st.session_state
-    ack = ss["browser_ack"]
+    ack = ss["detektor_ack"]
     if nilai.get("id") != ack["id"]:
         # Komponen baru dipasang (mis. halaman dimuat ulang): nomor urutnya mulai dari awal.
         ack["id"], ack["seq"] = nilai.get("id"), 0
@@ -156,30 +164,29 @@ def _proses_nilai(nilai, user, is_guest, notifier, info):
 def proses_pesan(user, is_guest, recipient_emails):
     """Proses pesan baru dari komponen sebelum apa pun dirender.
 
-    Nilai dari pesan terakhir komponen sudah tersedia di awal rerun, jadi status sesi (mis. kunci
-    pilihan mode di sidebar) langsung mutakhir dan ack ikut terkirim di render ini juga, tanpa
-    rerun tambahan.
+    Nilai dari pesan terakhir komponen sudah tersedia di awal rerun, jadi status sesi langsung
+    mutakhir dan ack ikut terkirim di render ini juga, tanpa rerun tambahan.
     """
     ss = _state()
     notifier = ss["email_darurat"]
     notifier.email_recipients = recipient_emails
-    _proses_nilai(ss.get(KEY), user, is_guest, notifier, ss["browser_info"])
+    _proses_nilai(ss.get(KEY), user, is_guest, notifier, ss["detektor_info"])
 
 
 def render(user, is_guest, recipient_emails, thresholds):
     ss = _state()
     notifier = ss["email_darurat"]
     notifier.email_recipients = recipient_emails
-    info = ss["browser_info"]
+    info = ss["detektor_info"]
 
-    nilai = detektor_component(
+    nilai = _komponen(
         key=KEY,
         default=None,
         ambang=thresholds,
         email_aktif=bool(recipient_emails) and not is_guest,
         tamu=is_guest,
         kunci_tamu=GUEST_STORAGE_KEY,
-        ack=dict(ss["browser_ack"]),
+        ack=dict(ss["detektor_ack"]),
         flush_dalam_ms=notifier.sisa_jeda_ms(),
     )
     # Biasanya nilai yang sama dengan yang sudah diproses proses_pesan(), jadi semua dilewati.

@@ -23,7 +23,7 @@
   .layar.kosong canvas { display: none; }
   .layar.kosong { aspect-ratio: 16 / 9; }
   .layar-pesan { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 16px; text-align: center; color: var(--muted); font-size: 0.9rem; }
-  .layar:not(.kosong) .layar-pesan { background: rgba(10, 30, 50, 0.65); }
+  .layar:not(.kosong) .layar-pesan { background: rgba(10, 30, 50, 0.85); color: var(--fg); }
   .layar-pesan[hidden] { display: none; }
 
   /* Video kamera hanya sumber gambar; yang ditampilkan adalah canvas beranotasi. */
@@ -87,7 +87,7 @@
       </div>
       <dl id="info"></dl>
       <div class="opsi">
-        <label><input type="checkbox" id="opsi-clahe"> CLAHE (sama seperti versi lama)</label>
+        <label><input type="checkbox" id="opsi-clahe"> CLAHE (perjelas wajah saat redup)</label>
         <label>Delegate <select id="opsi-delegate"><option value="CPU">CPU</option><option value="GPU">GPU</option></select></label>
         <button id="tombol-csv" disabled>Unduh CSV</button>
       </div>

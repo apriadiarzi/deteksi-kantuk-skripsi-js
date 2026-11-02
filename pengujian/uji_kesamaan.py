@@ -1,4 +1,4 @@
-"""Uji kesamaan mode browser (JS) dengan mode server (Python).
+"""Uji kesamaan logika JS aplikasi (components/detektor) dengan versi Python (deteksi_kantuk.py).
 
 1. Indikator: EAR, MAR, sudut kepala, koordinat piksel, dan teks di layar dari landmark acak
    (termasuk titik di luar frame, nilai persis 0/1, dan frame sangat kecil).
@@ -8,8 +8,8 @@
 4. CLAHE: clahe.js dibandingkan piksel per piksel dengan enhance_low_light() (cv2).
 
 Butuh Node.js dan paket Python versi lama (opencv, mediapipe). Jalankan dari folder repo:
-    python uji_mode_browser/uji_kesamaan.py [--seed 2026]
-Ringkasan hasil juga ditulis ke uji_mode_browser/hasil_uji_kesamaan.txt.
+    python pengujian/uji_kesamaan.py [--seed 2026]
+Ringkasan hasil juga ditulis ke pengujian/hasil_uji_kesamaan.txt.
 """
 import argparse
 import glob
@@ -23,7 +23,7 @@ import types
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
-sys.path.insert(0, ROOT)
+sys.path[:0] = [HERE, ROOT]
 os.chdir(ROOT)
 # Kode yang diuji membaca konfigurasi saat diimpor; tidak ada koneksi database atau email.
 os.environ.setdefault("GOOGLE_API_KEY", "uji")
@@ -34,7 +34,7 @@ import numpy as np  # noqa: E402
 
 import deteksi_kantuk as dk  # noqa: E402
 import email_darurat  # noqa: E402
-from mode_browser import format_kejadian, waktu_wib  # noqa: E402
+from detektor import format_kejadian, waktu_wib  # noqa: E402
 
 # Sama persis dengan VideoFrameHandler.__init__ di deteksi_kantuk.py
 MATA_KIRI = [362, 385, 387, 263, 373, 380]
@@ -365,7 +365,7 @@ def uji_email(rng, teks_email):
 
 def uji_clahe(rng, tmp):
     gambar = []
-    for path in sorted(glob.glob("test*.jp*g") + glob.glob("lampiran_skripsi/*/*.jpg")):
+    for path in sorted(glob.glob("pengujian/citra_uji/test*.jp*g") + glob.glob("lampiran_skripsi/*/*.jpg")):
         img = cv2.imread(path)
         if img is None:
             continue
@@ -416,7 +416,7 @@ def main():
     sys.stdout.reconfigure(encoding="utf-8")
 
     import mediapipe
-    lapor(f"Uji kesamaan mode browser vs mode server (seed {args.seed}, Python {sys.version.split()[0]}, "
+    lapor(f"Uji kesamaan JS vs Python (seed {args.seed}, Python {sys.version.split()[0]}, "
           f"mediapipe {mediapipe.__version__}, OpenCV {cv2.__version__}, "
           f"Node {subprocess.run(['node', '--version'], capture_output=True, text=True).stdout.strip()})")
     with tempfile.TemporaryDirectory() as tmp:

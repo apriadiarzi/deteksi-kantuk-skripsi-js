@@ -1,4 +1,4 @@
-/* Uji statis mode browser: padanan uji_statis.py dengan FaceLandmarker (mode IMAGE). */
+/* Uji statis: padanan pengujian/uji_statis.py dengan FaceLandmarker (mode IMAGE). */
 (function () {
   "use strict";
 

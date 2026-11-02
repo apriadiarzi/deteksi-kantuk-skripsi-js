@@ -1,129 +1,31 @@
-import os
 import re
 import random
 import string
-import traceback
-import importlib.util
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
 import streamlit as st
-import streamlit_nested_layout
 import streamlit.components.v1 as components
 from streamlit_autorefresh import st_autorefresh
 
-# streamlit_webrtc, aiortc, av, audio_handling, dan deteksi_kantuk hanya diimpor di mode server
-# (lihat bagian kamera di bawah), supaya mode browser tidak memuatnya sama sekali.
-from diagnostik import DIAGNOSTIK_AKTIF, FrameTimer
-from geolocation_component import geolocation_component
-import mode_browser
+import detektor
 from database import (
     create_db, add_user, check_username_exists, check_login,
-    start_session, save_session_progress, save_otp, verify_otp, get_user_email,
-    resolve_guest_user, compute_session_totals, GUEST_COOKIE_VALUE, GUEST_STORAGE_KEY,
-    now_wib, set_session_token, get_username_by_token, clear_session_token,
+    save_otp, verify_otp, get_user_email,
+    resolve_guest_user, GUEST_COOKIE_VALUE,
+    set_session_token, get_username_by_token, clear_session_token,
     AUTH_STORAGE_KEY,
 )
 from hashlib import sha256
 from decouple import config
-import requests
 import time
-import json
-from datetime import datetime
 
 create_db()
 
 # ── Konstanta email pengirim ──────────────────────────────────────────────────
 EMAIL_SENDER   = "deteksikantuk@gmail.com"
 EMAIL_PASSWORD = config('EMAIL_PASSWORD')
-
-# Lama kamera harus mati (detik) sebelum sesi dianggap selesai.
-CAMERA_OFF_GRACE = 3.0
-
-# ── Mode deteksi ──────────────────────────────────────────────────────────────
-# browser = deteksi di browser (MediaPipe JS), video tidak dikirim ke server.
-# server  = versi lama: video lewat streamlit-webrtc + TURN Metered, diproses MediaPipe Python.
-MODE_DETEKSI_LABEL = {"browser": "Browser (baru)", "server": "Server (lama)"}
-# Paket mode server hanya terpasang di Python 3.11 ke bawah (lihat requirements.txt);
-# tanpa paket itu hanya mode browser yang ditawarkan.
-MODE_SERVER_TERSEDIA = all(
-    importlib.util.find_spec(m)
-    for m in ("av", "aiortc", "streamlit_webrtc", "cv2", "mediapipe", "pydub")
-)
-if not MODE_SERVER_TERSEDIA:
-    del MODE_DETEKSI_LABEL["server"]
-MODE_DETEKSI = config('MODE_DETEKSI', default='browser').strip().lower()
-if MODE_DETEKSI not in MODE_DETEKSI_LABEL:
-    MODE_DETEKSI = 'browser'
-
-# ── STUN/TURN ─────────────────────────────────────────────────────────────────
-# Kredensial TURN Metered dari Secrets/.env; kosong = STUN saja.
-METERED_APP_NAME = config('METERED_APP_NAME', default='')
-METERED_API_KEY  = config('METERED_API_KEY', default='')
-
-STUN_ONLY = [{"urls": ["stun:stun.l.google.com:19302"]}]
-
-
-def build_ice_servers():
-    """Ambil daftar server ICE (STUN + TURN) dari Metered, di-cache per sesi."""
-    if not (METERED_APP_NAME and METERED_API_KEY):
-        return STUN_ONLY
-
-    cached = st.session_state.get("ice_servers_cache")
-    if cached and time.time() < cached["expires"]:
-        return cached["servers"]
-
-    def _cache(servers, ttl):
-        st.session_state["ice_servers_cache"] = {"servers": servers, "expires": time.time() + ttl}
-        return servers
-
-    try:
-        resp = requests.get(
-            f"https://{METERED_APP_NAME}.metered.live/api/v1/turn/credentials",
-            params={"apiKey": METERED_API_KEY},
-            timeout=10,
-        )
-        resp.raise_for_status()
-        servers = resp.json()
-        if not isinstance(servers, list) or not servers:
-            # Respons bukan daftar server dianggap gagal.
-            raise ValueError(f"format respons tidak dikenal: {servers!r}")
-    except Exception as e:
-        # Gagal ambil kredensial: pakai STUN saja, dicoba lagi setelah 60 detik.
-        print(f"Gagal ambil kredensial TURN: {e} — sementara STUN saja")
-        return _cache(STUN_ONLY, 60)
-
-    return _cache(servers, 1800)
-
-# ── Pangkas daftar TURN untuk BROWSER ─────────────────────────────────────────
-# Browser hanya diberi TURN lewat TCP dan TLS agar START tidak tertahan menunggu TURN UDP.
-def trim_turn_urls(servers):
-    trimmed, have_tcp, have_tls = [], False, False
-    for s in servers:
-        urls = s["urls"] if isinstance(s["urls"], list) else [s["urls"]]
-        kept = []
-        for u in urls:
-            if u.startswith("stun:"):
-                kept.append(u)
-            elif u.startswith("turn:") and "transport=tcp" in u and not have_tcp:
-                kept.append(u)
-                have_tcp = True
-            elif u.startswith("turns:") and not have_tls:
-                kept.append(u)
-                have_tls = True
-        if kept:
-            trimmed.append({**s, "urls": kept})
-    return trimmed
-
-# ── TURN untuk sisi SERVER juga ───────────────────────────────────────────────
-# Server (aiortc) ikut memakai TURN lewat daftar ICE bawaannya.
-def use_ice_servers_on_server(servers):
-    rtc_servers = [
-        RTCIceServer(urls=s["urls"], username=s.get("username"), credential=s.get("credential"))
-        for s in servers
-    ]
-    RTCIceGatherer.getDefaultIceServers = classmethod(lambda cls: list(rtc_servers))
 
 # ── Sesi login ────────────────────────────────────────────────────────────────
 # Login disimpan di session_state, plus token di localStorage agar bertahan saat refresh.
@@ -151,87 +53,6 @@ def flush_pending_auth_storage_write():
         else:
             js = f"try {{ localStorage.setItem('{AUTH_STORAGE_KEY}', '{pending}'); }} catch(e) {{}}"
         components.html(f"<script>{js}</script>", height=0)
-
-def save_guest_session(session_id, start_time_str, events):
-    """Simpan (atau perbarui) satu sesi tamu di localStorage browser (maksimal 10 sesi terbaru)."""
-    end_time_str = now_wib().strftime('%Y-%m-%d %H:%M:%S')
-    try:
-        start_dt = datetime.strptime(start_time_str, '%Y-%m-%d %H:%M:%S')
-        end_dt   = datetime.strptime(end_time_str, '%Y-%m-%d %H:%M:%S')
-        duration = int((end_dt - start_dt).total_seconds())
-    except Exception:
-        duration = None
-
-    total_eye_close, total_yawn, total_head_tilt = compute_session_totals(events)
-
-    session_data = {
-        "id": session_id,
-        "start_time": start_time_str,
-        "end_time": end_time_str,
-        "duration": duration,
-        "total_eye_close": total_eye_close,
-        "total_yawn": total_yawn,
-        "total_head_tilt": total_head_tilt,
-        "events": events,
-    }
-    # Tandai agar halaman Histori membaca ulang data tamu.
-    st.session_state["guest_history_dirty"] = True
-
-    payload = json.dumps(session_data).replace("</", "<\\/")
-    components.html(f"""
-    <script>
-    try {{
-        // Ganti entri sesi dengan id yang sama, bukan menambah entri baru.
-        const sesi = {payload};
-        let arr = JSON.parse(localStorage.getItem('{GUEST_STORAGE_KEY}') || '[]');
-        arr = arr.filter(x => x.id !== sesi.id);
-        arr.unshift(sesi);
-        if (arr.length > 10) arr = arr.slice(0, 10);
-        localStorage.setItem('{GUEST_STORAGE_KEY}', JSON.stringify(arr));
-    }} catch (e) {{ console.error('Gagal simpan histori tamu:', e); }}
-    </script>
-    """, height=0)
-
-# ── Penyimpanan sesi bertahap ─────────────────────────────────────────────────
-# Kejadian disimpan bertahap; ringkasan sesi diperbarui tiap CHECKPOINT_INTERVAL detik.
-CHECKPOINT_INTERVAL = 15
-
-def save_progress(handler, session_id, is_guest, guest_start, force=False):
-    """Simpan kejadian yang belum tersimpan dan perbarui ringkasan sesi; False kalau gagal."""
-    with handler.session_lock:
-        if session_id is None or session_id in handler.closed_sessions:
-            return True
-        # Salinan: thread kamera terus menambah ke list aslinya.
-        events = list(handler.pending_events)
-        new_events = events[handler.events_saved:]
-        if not force and not new_events and time.time() - handler.last_saved_at < CHECKPOINT_INTERVAL:
-            return True
-        try:
-            if is_guest:
-                # Sesi tamu ditulis ulang utuh di localStorage.
-                save_guest_session(session_id, guest_start, events)
-            else:
-                save_session_progress(session_id, new_events)
-        except Exception as e:
-            print(f"Gagal menyimpan progres sesi: {e}")
-            return False
-        handler.events_saved = len(events)
-        handler.last_saved_at = time.time()
-        return True
-
-def close_session(handler, session_id, is_guest, guest_start):
-    """Tutup sesi sekali saja; kembalikan jumlah kejadian, None jika sudah ditutup, False jika gagal."""
-    with handler.session_lock:
-        if session_id is None or session_id in handler.closed_sessions:
-            return None
-        if not save_progress(handler, session_id, is_guest, guest_start, force=True):
-            return False
-        handler.closed_sessions.add(session_id)
-        handler.mulai_sesi_baru()
-        total = len(handler.pending_events)
-        handler.pending_events.clear()
-        handler.events_saved = 0
-        return total
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
@@ -337,15 +158,6 @@ h1, h2, h3 { font-family: 'Space Grotesk', sans-serif; }
     letter-spacing: -0.01em;
 }
 .app-header p { margin: 2px 0 0 0; font-size: 0.85rem; color: var(--muted); }
-.status-dot {
-    display: inline-flex; align-items: center; gap: 6px;
-    font-size: 0.78rem; font-weight: 600; color: var(--accent);
-    white-space: nowrap;
-}
-.status-dot::before {
-    content: ""; width: 7px; height: 7px; border-radius: 50%;
-    background: var(--accent);
-}
 
 /* ── Section — pengganti "card" berat, cukup garis & label ─── */
 .section-label {
@@ -487,13 +299,6 @@ div[data-baseweb="input"].st-ck, div[data-baseweb="input"].st-cm {
     text-align: center;
     margin-bottom: 1.75rem;
 }
-/* ── Video kamera ────────────────────────────────────────── */
-video {
-    border-radius: var(--radius-md);
-    width: 100% !important;
-    height: auto !important;
-    border: 1px solid var(--border);
-}
 
 /* ── Alert box ───────────────────────────────────────────── */
 [data-testid="stAlert"] { border-radius: var(--radius-sm); }
@@ -586,7 +391,6 @@ logged_in = bool(user or is_guest)
 # ══════════════════════════════════════════════════════════════════════════════
 if logged_in:
     display_name = user or "Tamu"
-    alarm_file_path = os.path.join("audio", "wake_up.wav")
 
     # Email tujuan alarm (tamu tidak punya).
     if is_guest:
@@ -606,59 +410,19 @@ if logged_in:
             st.session_state["email_recipient_cached"] = [recipient_email] if recipient_email else []
         recipient_emails = st.session_state.get("email_recipient_cached", [])
 
-    # Pesan dari komponen mode browser diproses lebih dulu, supaya status sesi sudah mutakhir
-    # saat pilihan mode di sidebar dirender.
-    mode_browser.proses_pesan(user, is_guest, recipient_emails)
+    # Pesan dari komponen detektor diproses sebelum apa pun dirender (lihat detektor.py).
+    detektor.proses_pesan(user, is_guest, recipient_emails)
 
     with st.sidebar:
         st.markdown(f'<div class="side-user">{display_name}</div>', unsafe_allow_html=True)
 
-        # Pilihan mode untuk pengujian bergantian; dikunci selama sesi berjalan.
-        sesi_berjalan = bool(st.session_state.get("is_monitoring")) or mode_browser.sesi_aktif()
-        mode_deteksi = st.radio(
-            "Mode deteksi", list(MODE_DETEKSI_LABEL), format_func=MODE_DETEKSI_LABEL.get,
-            index=list(MODE_DETEKSI_LABEL).index(MODE_DETEKSI), key="mode_deteksi",
-            disabled=sesi_berjalan,
-            help="Browser: deteksi berjalan di perangkat, video tidak dikirim ke server. "
-                 "Server: versi lama, video dikirim lewat WebRTC dan diproses di server. "
-                 "Bawaan diatur lewat MODE_DETEKSI di .env/Secrets.")
-        if not MODE_SERVER_TERSEDIA:
-            st.caption("Mode server tidak tersedia: paketnya hanya bisa dipasang di Python 3.11 "
-                       "ke bawah.")
-
         if st.button("Keluar"):
-            # Auto-save sesi aktif sebelum logout
-            if mode_deteksi == "browser":
-                mode_browser.tutup_sesi_aktif(is_guest)
-            elif st.session_state.get("is_monitoring") and st.session_state.get("session_id"):
-                # Handler diambil dari session_state.
-                handler = st.session_state.get("video_handler")
-                if handler:
-                    close_session(handler, st.session_state["session_id"], is_guest,
-                                  st.session_state.get("guest_session_start"))
+            # Sesi yang masih berjalan disimpan dulu sebelum logout.
+            detektor.tutup_sesi_aktif(is_guest)
             if not is_guest:
                 clear_session_token(user)
             set_cookie("")
             st.experimental_rerun()
-
-    # Cegah layar mati saat deteksi berjalan (mode browser mengurusnya di komponen detektor).
-    if mode_deteksi == "server":
-        components.html("""
-        <script>
-        let wakeLock = null;
-        async function requestWakeLock() {
-            try {
-                wakeLock = await navigator.wakeLock.request("screen");
-            } catch (err) {
-                console.error("Wake lock gagal:", err);
-            }
-        }
-        requestWakeLock();
-        document.addEventListener("visibilitychange", () => {
-            if (document.visibilityState === "visible") requestWakeLock();
-        });
-        </script>
-        """, height=0)
 
     st.markdown("""
     <div class="app-header">
@@ -698,183 +462,8 @@ if logged_in:
         "MAR_THRESH": MAR_THRESH, "TILT_THRESH": TILT_THRESH,
     }
 
-    # ── Mode browser: kamera, deteksi, dan alarm di komponen detektor ───────────
-    if mode_deteksi == "browser":
-        mode_browser.render(user, is_guest, recipient_emails, thresholds)
-        st.stop()
-
-    # ── Mode server (versi lama) ──────────────────────────────────────────────
-    import av
-    from streamlit_webrtc import VideoHTMLAttributes, webrtc_streamer
-    from aiortc import RTCIceServer
-    from aiortc.rtcicetransport import RTCIceGatherer
-    from audio_handling import AudioFrameHandler
-    from deteksi_kantuk import VideoFrameHandler
-
-    if "session_id"    not in st.session_state: st.session_state["session_id"]    = None
-    if "is_monitoring" not in st.session_state: st.session_state["is_monitoring"] = False
-    if "video_handler" not in st.session_state: st.session_state["video_handler"] = VideoFrameHandler()
-
-    video_handler = st.session_state["video_handler"]
-    video_handler.email_recipients = recipient_emails
-    # Handler audio disimpan di session_state agar alarm tidak terpotong setiap rerun.
-    if "audio_handler" not in st.session_state:
-        st.session_state["audio_handler"] = AudioFrameHandler(sound_file_path=alarm_file_path)
-        st.session_state["audio_handler"].playing = False
-    audio_handler = st.session_state["audio_handler"]
-
-    # Pengukuran waktu proses per frame (mode DIAGNOSTIK).
-    if "frame_timer" not in st.session_state:
-        st.session_state["frame_timer"] = FrameTimer()
-    frame_timer = st.session_state["frame_timer"]
-
-    def video_frame_callback(frame: av.VideoFrame):
-        # Waktu proses satu frame: dari frame diterima sampai frame hasil siap dikirim.
-        t0 = time.perf_counter() if DIAGNOSTIK_AKTIF else None
-        try:
-            img = frame.to_ndarray(format="bgr24")
-            img, play_alarm = video_handler.process(img, thresholds)
-            audio_handler.playing = play_alarm
-            out = av.VideoFrame.from_ndarray(img, format="bgr24")
-            if t0 is not None:
-                frame_timer.record((time.perf_counter() - t0) * 1000)
-            return out
-        except Exception:
-            # Catat error sekali ke log dan kembalikan frame asli agar koneksi tidak putus.
-            if not getattr(video_handler, "last_error", False):
-                print("Error di video_frame_callback:\n" + traceback.format_exc())
-            video_handler.last_error = True
-            return frame
-
-    # Daftar ICE lengkap untuk server, versi dipangkas untuk browser; key komponen sengaja tetap.
-    raw_ice_servers = build_ice_servers()
-    use_ice_servers_on_server(raw_ice_servers)
-    ice_servers = trim_turn_urls(raw_ice_servers)
-    def audio_frame_callback(frame: av.AudioFrame):
-        # Alarm dibunyikan dengan mengganti isi frame mikrofon.
-        return audio_handler.process(frame, play_sound=audio_handler.playing)
-
-    ctx = webrtc_streamer(
-        key="drowsiness-detection",
-        video_frame_callback=video_frame_callback,
-        audio_frame_callback=audio_frame_callback,
-        rtc_configuration={"iceServers": ice_servers},
-        # Kamera depan, 360p, 15 fps.
-        media_stream_constraints={
-            "video": {
-                "facingMode": {"ideal": "user"},
-                "height": {"ideal": 360},
-                "frameRate": {"ideal": 15, "max": 20},
-            },
-            "audio": True,
-        },
-        video_html_attrs=VideoHTMLAttributes(
-            autoPlay=True, controls=False, muted=False,
-            style={"width": "100%", "height": "100%", "objectFit": "cover", "borderRadius": "10px"},
-        ),
-    )
-
-    # GPS untuk email darurat lewat komponen geolocation, dirender setelah kamera.
-    if recipient_emails:
-        maps_link = geolocation_component(key="geolocation", default=None)
-        if maps_link:
-            video_handler.location_link = maps_link
-
-    # ── Auto-start saat kamera ON, auto-save saat kamera OFF ─────────────────
-    # Kamera dianggap hidup selama playing atau signalling.
-    cam_playing    = bool(ctx.state.playing) if ctx and ctx.state else False
-    cam_signalling = bool(ctx.state.signalling) if ctx and ctx.state else False
-    camera_active  = cam_playing or cam_signalling
-
-    # Lama kamera mati diukur dengan waktu, bukan jumlah rerun.
-    now = time.time()
-    if camera_active:
-        st.session_state["camera_off_since"] = None
-    elif st.session_state.get("camera_off_since") is None:
-        st.session_state["camera_off_since"] = now
-
-    off_since   = st.session_state.get("camera_off_since")
-    camera_off_for = (now - off_since) if off_since else 0.0
-
-    if cam_playing and not st.session_state["is_monitoring"]:
-        # Kamera baru nyala → mulai sesi otomatis
-        if is_guest:
-            sid = f"g_{int(time.time() * 1000)}"
-            st.session_state["guest_session_start"] = now_wib().strftime('%Y-%m-%d %H:%M:%S')
-        else:
-            sid = start_session(user)
-        st.session_state["session_id"]    = sid
-        st.session_state["is_monitoring"] = True
-        video_handler.pending_events.clear()
-        video_handler.events_saved  = 0
-        video_handler.last_saved_at = time.time()
-        video_handler._eye_event_start  = None
-        video_handler._yawn_event_start = None
-        video_handler._tilt_event_start = None
-        frame_timer.reset()  # statistik diagnostik per sesi kamera
-
-    # Sesi ditutup setelah kamera mati selama CAMERA_OFF_GRACE detik.
-    elif st.session_state["is_monitoring"] and camera_off_for >= CAMERA_OFF_GRACE:
-        total = close_session(video_handler, st.session_state["session_id"], is_guest,
-                              st.session_state.get("guest_session_start"))
-        # False = simpanan gagal (coba lagi), None = sesi sudah ditutup sebelumnya.
-        if total is not False:
-            st.session_state["is_monitoring"] = False
-            st.session_state["session_id"]    = None
-            st.session_state["camera_off_since"] = None
-            if total is not None:
-                # Jangan rerun di sini agar penyimpanan sesi tamu sempat sampai ke browser.
-                st.success(f"Sesi tersimpan! {total} kejadian kantuk tercatat.")
-
-    # Simpan bertahap selama sesi berjalan — lihat save_progress().
-    if st.session_state["is_monitoring"]:
-        save_progress(video_handler, st.session_state["session_id"], is_guest,
-                      st.session_state.get("guest_session_start"))
-
-    # ── Info status ───────────────────────────────────────────────────────────
-    # Rerun tiap 2 detik selama kamera atau sesi aktif.
-    if st.session_state["is_monitoring"] or camera_active:
-        st_autorefresh(interval=2000, key="live_session_counter")
-
-    if st.session_state["is_monitoring"]:
-        st.markdown(
-            f'<span class="status-dot">Sesi aktif — {len(video_handler.pending_events)} kejadian tercatat</span>',
-            unsafe_allow_html=True,
-        )
-    elif not camera_active:
-        st.caption("Tekan START pada kamera untuk memulai sesi monitoring.")
-
-    if getattr(video_handler, "last_error", None):
-        st.warning("Ada gangguan saat memproses frame kamera. Detailnya tercatat di log aplikasi.")
-
-    # ── Diagnostik (hanya kalau DIAGNOSTIK=1) ─────────────────────────────────
-    if DIAGNOSTIK_AKTIF:
-        with st.expander("Diagnostik", expanded=False):
-            s = frame_timer.summary()
-            if s is None:
-                st.caption(f"Belum ada data. {FrameTimer.WARMUP_FRAMES} frame pertama setelah START "
-                           "diabaikan sebagai pemanasan.")
-            else:
-                k = lambda x: f"{x:.1f}".replace(".", ",")
-                st.markdown(
-                    f"**Waktu proses satu frame** (sesi kamera ini, {s['diabaikan']} frame pemanasan diabaikan)\n\n"
-                    f"| Frame terukur | Rata-rata | Median | P95 | Min | Maks |\n"
-                    f"|---:|---:|---:|---:|---:|---:|\n"
-                    f"| {s['n']} | {k(s['rata_rata'])} ms | {k(s['median'])} ms | {k(s['p95'])} ms "
-                    f"| {k(s['min'])} ms | {k(s['maks'])} ms |"
-                )
-
-            st.markdown("**Handshake & query database** (diukur dari server ini)")
-            if st.button("Ukur database (10x)", key="diag_ukur_db"):
-                # Diimpor hanya saat tombol ditekan.
-                import ukur_db
-                with st.spinner("Mengukur 10 percobaan..."):
-                    try:
-                        st.session_state["diag_db_hasil"] = ukur_db.format_tabel(ukur_db.ukur(10))
-                    except Exception as e:
-                        st.session_state["diag_db_hasil"] = "Gagal mengukur: " + ukur_db._aman(e)
-            if st.session_state.get("diag_db_hasil"):
-                st.code(st.session_state["diag_db_hasil"], language=None)
+    # Kamera, deteksi, alarm, dan anotasi berjalan di browser; lihat components/detektor.
+    detektor.render(user, is_guest, recipient_emails, thresholds)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # BELUM LOGIN

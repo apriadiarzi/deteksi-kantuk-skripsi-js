@@ -75,14 +75,6 @@ def resolve_guest_user(cookie_value):
         return None, True
     return cookie_value, False
 
-def compute_session_totals(events):
-    """Hitung total kejadian per jenis dalam satu pass."""
-    totals = {"eye_close": 0, "yawn": 0, "head_tilt": 0}
-    for e in events:
-        if e['event_type'] in totals:
-            totals[e['event_type']] += 1
-    return totals["eye_close"], totals["yawn"], totals["head_tilt"]
-
 # ─── Setup ────────────────────────────────────────────────────────────────────
 
 # Skema cukup dibuat sekali per proses.
@@ -205,12 +197,6 @@ def check_login(username, password):
         cursor.execute('SELECT id FROM users WHERE username=%s AND password=%s', (username, password))
         return cursor.fetchone() is not None
 
-def get_user_id_by_username(username):
-    with _db() as cursor:
-        cursor.execute('SELECT id FROM users WHERE username=%s', (username,))
-        result = cursor.fetchone()
-        return result[0] if result else None
-
 def get_user_email(username):
     with _db() as cursor:
         cursor.execute('SELECT email FROM users WHERE username=%s', (username,))
@@ -291,10 +277,6 @@ def save_session_progress(session_id, new_events: list):
                 {_TOTALS_FROM_EVENTS}
             WHERE s.id = %s
         ''', (end_time, end_time, session_id))
-
-def end_session(session_id, remaining_events: list):
-    """Simpan sisa kejadian dan perbarui ringkasan sesi saat sesi ditutup."""
-    save_session_progress(session_id, remaining_events)
 
 
 # ─── Getters untuk halaman Histori ────────────────────────────────────────────

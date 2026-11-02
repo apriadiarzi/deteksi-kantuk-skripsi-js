@@ -1,3 +1,7 @@
+"""Versi Python deteksi kantuk (MediaPipe Face Mesh + OpenCV), dipakai aplikasi sebelum deteksi
+dipindah ke browser (components/detektor). Tidak dipakai aplikasi lagi; disimpan sebagai acuan
+uji_kesamaan.py dan uji_statis.py. Butuh paket di pengujian/requirements.txt.
+"""
 import cv2
 import time
 import numpy as np

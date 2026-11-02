@@ -1,8 +1,7 @@
-"""Email darurat untuk mode browser.
+"""Email darurat ke kontak terdekat saat kantuk berlangsung lama.
 
-Salinan logika email VideoFrameHandler di deteksi_kantuk.py (teks, penerima, lokasi, dan
-pembatasan satu email per 2 menit) tanpa memuat OpenCV/MediaPipe. Kesamaan teksnya diuji
-oleh uji_mode_browser/uji_kesamaan.py.
+Teks, penerima, tautan lokasi, dan pembatasan satu email per 2 menit sama dengan versi Python
+(pengujian/deteksi_kantuk.py); kesamaannya diuji oleh pengujian/uji_kesamaan.py.
 """
 import smtplib
 import threading

@@ -1,15 +1,15 @@
 /*
  * Komponen Streamlit "detektor": kamera, deteksi wajah, logika kantuk, alarm, dan pengukuran
  * waktu proses, semuanya di browser. Ke Python hanya dikirim pesan kecil saat ada kejadian
- * (lihat mode_browser.py); setiap pesan memicu satu rerun Streamlit.
+ * (lihat detektor.py); setiap pesan memicu satu rerun Streamlit.
  */
 (function () {
   "use strict";
 
   const L = window.Logika, M = window.ModelWajah, A = window.Anotasi;
 
-  const PEMANASAN = 10;           // frame awal tiap sesi yang tidak dihitung (sama dengan FrameTimer)
-  const BATAS_KAMERA_MATI = 3000; // ms kamera tidak aktif sebelum sesi disimpan (CAMERA_OFF_GRACE)
+  const PEMANASAN = 10;           // frame awal tiap sesi yang tidak dihitung (pemanasan)
+  const BATAS_KAMERA_MATI = 3000; // ms kamera tidak aktif sebelum sesi disimpan
   const JEDA_KIRIM_ULANG = 8000;  // ms sebelum pesan yang belum dikonfirmasi dikirim ulang
   const KUNCI_PENGATURAN = "deteksi_kantuk_pengaturan_uji";
 
@@ -146,7 +146,7 @@
     try {
       aturStatus("Membuka kamera…");
       try {
-        // Sama dengan media_stream_constraints versi lama, tanpa mikrofon.
+        // Kamera depan, tinggi 360 px, 15 fps, tanpa mikrofon.
         stream = await navigator.mediaDevices.getUserMedia({
           video: { facingMode: { ideal: "user" }, height: { ideal: 360 }, frameRate: { ideal: 15, max: 20 } },
           audio: false,
@@ -312,7 +312,7 @@
       const keluaran = detektor.prosesFrame(ind, t2 / 1000, Date.now(), args.ambang, w, h);
       const t3 = performance.now();
 
-      // Frame yang ditampilkan adalah frame hasil CLAHE, seperti versi lama.
+      // Frame yang ditampilkan adalah frame hasil CLAHE.
       if (img) ctx.putImageData(img, 0, 0);
       else ctx.drawImage(video, 0, 0, w, h);
       A.gambar(ctx, keluaran.gambar, w);
@@ -380,7 +380,7 @@
     perbaruiStatus();
   }
 
-  // Format dan aturan sama dengan save_guest_session() versi lama (maksimal 10 sesi terbaru).
+  // Format yang dibaca halaman Histori untuk tamu (maksimal 10 sesi terbaru).
   function simpanTamu() {
     const akhir = Date.now();
     const total = { eye_close: 0, yawn: 0, head_tilt: 0 };

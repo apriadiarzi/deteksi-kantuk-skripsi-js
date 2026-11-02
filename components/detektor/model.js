@@ -98,7 +98,7 @@
   }
 
   /**
-   * Buat FaceLandmarker dengan pengaturan yang sama seperti FaceMesh versi lama: satu wajah,
+   * Buat FaceLandmarker dengan pengaturan yang sama seperti Face Mesh versi Python: satu wajah,
    * ambang deteksi dan pelacakan 0,5, tanpa blendshape. GPU yang gagal diganti CPU.
    * opsi: { mode: "VIDEO" | "IMAGE", delegate: "CPU" | "GPU" }
    */
