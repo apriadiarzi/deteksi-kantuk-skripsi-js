@@ -20,7 +20,8 @@ pernah dikirim ke server, sehingga pemakaian data kecil dan tidak butuh server r
   5 detik, paling banyak satu email per 2 menit (kejadian di dalam jeda dikirim sebagai ringkasan).
 - Akun dengan verifikasi OTP email, atau **mode tamu** tanpa akun (histori disimpan di browser, tanpa email).
 - Halaman **Histori**: ringkasan per sesi dan daftar kejadian, dengan filter tanggal dan jenis kejadian.
-- Panel **Pengujian & diagnostik**: waktu proses per frame, FPS, dan unduhan CSV data mentah.
+- Panel **Pengujian & diagnostik** (disembunyikan, bisa diaktifkan): waktu proses per frame, FPS, dan
+  unduhan CSV data mentah.
 
 ## Cara kerja
 
@@ -74,7 +75,7 @@ kamera → [CLAHE] → FaceLandmarker → EAR/MAR/sudut
    pip install -r requirements.txt
    ```
 2. Buat `.env` berisi `DATABASE_URL` (Neon PostgreSQL) dan `EMAIL_PASSWORD` (app password Gmail
-   pengirim `deteksikantuk@gmail.com`).
+   pengirim `deteksikantuk@gmail.com`). Opsional: `PANEL_PENGUJIAN=1` untuk menampilkan panel pengujian.
 3. Jalankan:
    ```bash
    streamlit run "2_🥱_Deteksi_Kantuk.py"
@@ -95,6 +96,7 @@ kamera → [CLAHE] → FaceLandmarker → EAR/MAR/sudut
    ```toml
    DATABASE_URL = "postgresql://…"
    EMAIL_PASSWORD = "…"
+   # PANEL_PENGUJIAN = "1"   # opsional, tampilkan panel Pengujian & diagnostik
    ```
 
 ## Pengujian
@@ -102,7 +104,9 @@ kamera → [CLAHE] → FaceLandmarker → EAR/MAR/sudut
 ### Uji langsung (panel Pengujian & diagnostik)
 
 Nilai EAR, MAR, sudut kepala, dan lama tiap kondisi tampil di atas video. Panel **Pengujian &
-diagnostik** di bawah video menampilkan:
+diagnostik** disembunyikan secara bawaan; tampilkan dengan `PANEL_PENGUJIAN = "1"` di Secrets (atau
+`PANEL_PENGUJIAN=1` di `.env`), lalu reboot aplikasi. Tanpa panel, CLAHE selalu aktif dan delegate CPU.
+Panel ini muncul di bawah video dan menampilkan:
 
 - waktu proses per frame, yaitu deteksi FaceLandmarker + perhitungan EAR/MAR/sudut: rata-rata, median,
   P95, minimum, dan maksimum (nearest-rank). 10 frame pertama tiap sesi diabaikan sebagai pemanasan;

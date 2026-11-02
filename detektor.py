@@ -17,9 +17,13 @@ from datetime import datetime, timedelta
 
 import streamlit as st
 import streamlit.components.v1 as components
+from decouple import config
 
 from database import start_session, save_session_progress, GUEST_STORAGE_KEY
 from email_darurat import EmailDarurat, PESAN_EMAIL
+
+# Panel "Pengujian & diagnostik" di bawah video; disembunyikan kecuali PANEL_PENGUJIAN=1.
+PANEL_PENGUJIAN = config("PANEL_PENGUJIAN", default=False, cast=bool)
 
 # Registry Windows kadang memetakan .js ke text/plain; tanpa ini skrip komponen tidak dijalankan
 # browser saat aplikasi dijalankan lokal di Windows.
@@ -188,6 +192,7 @@ def render(user, is_guest, recipient_emails, thresholds):
         kunci_tamu=GUEST_STORAGE_KEY,
         ack=dict(ss["detektor_ack"]),
         flush_dalam_ms=notifier.sisa_jeda_ms(),
+        panel_pengujian=PANEL_PENGUJIAN,
     )
     # Biasanya nilai yang sama dengan yang sudah diproses proses_pesan(), jadi semua dilewati.
     _proses_nilai(nilai, user, is_guest, notifier, info)

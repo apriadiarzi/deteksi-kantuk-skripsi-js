@@ -48,12 +48,14 @@
     kunci_tamu: "drowsiness_guest_sessions",
     ack: null,
     flush_dalam_ms: null,
+    panel_pengujian: false,
   };
 
   window.addEventListener("message", (ev) => {
     const d = ev.data;
     if (!d || d.type !== "streamlit:render") return;
     Object.assign(args, d.args || {});
+    terapkanPanel();
     terimaAck();
     aturFlush();
     mulaiGps();
@@ -61,18 +63,38 @@
   });
 
   // ─── Pengaturan pengujian (per browser) ────────────────────────────────────
+  // Pengaturan tersimpan hanya dipakai kalau panel pengujian ditampilkan; tanpa panel selalu bawaan.
 
-  const pengaturan = { clahe: true, delegate: "CPU" };
-  try {
-    Object.assign(pengaturan, JSON.parse(localStorage.getItem(KUNCI_PENGATURAN) || "{}"));
-  } catch (e) { /* localStorage tidak tersedia: pakai bawaan */ }
+  const BAWAAN = { clahe: true, delegate: "CPU" };
+  const pengaturan = { ...BAWAAN };
+  let panelTampil = false;
 
   function simpanPengaturan() {
     try { localStorage.setItem(KUNCI_PENGATURAN, JSON.stringify(pengaturan)); } catch (e) { /* abaikan */ }
   }
 
-  el("opsi-clahe").checked = pengaturan.clahe;
-  el("opsi-delegate").value = pengaturan.delegate;
+  function isiOpsi() {
+    el("opsi-clahe").checked = pengaturan.clahe;
+    el("opsi-delegate").value = pengaturan.delegate;
+  }
+
+  function terapkanPanel() {
+    const tampil = !!args.panel_pengujian;
+    if (tampil === panelTampil) return;
+    panelTampil = tampil;
+    el("panel").hidden = !tampil;
+    const delegateLama = pengaturan.delegate;
+    Object.assign(pengaturan, BAWAAN);
+    if (tampil) {
+      try {
+        Object.assign(pengaturan, JSON.parse(localStorage.getItem(KUNCI_PENGATURAN) || "{}"));
+      } catch (e) { /* localStorage tidak tersedia: pakai bawaan */ }
+    }
+    isiOpsi();
+    if (pengaturan.delegate !== delegateLama) muatUlangModel();
+  }
+
+  isiOpsi();
   el("opsi-clahe").addEventListener("change", (e) => {
     pengaturan.clahe = e.target.checked;
     simpanPengaturan();
@@ -112,6 +134,9 @@
 
   function muatUlangModel() {
     if (berjalan) return;
+    // Model yang sedang dimuat ditunggu dulu, lalu dimuat ulang dengan delegate terbaru.
+    if (pemuatan) { pemuatan.then(muatUlangModel); return; }
+    if (landmarker && delegateAktif === pengaturan.delegate) return;
     if (landmarker) {
       landmarker.close();
       landmarker = null;
