@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Uji Statis Browser</title>
+<style>
+  :root { --bg: #123A63; --surface: #17477A; --fg: #f5f4f0; --muted: #9FB3C8; --accent: #ff8a1e; --border: rgba(255,255,255,0.12); --beda: #ff9b9b; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.5 Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 1100px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { font-size: 1.3rem; margin: 0 0 4px; }
+  h2 { font-size: 1rem; margin: 28px 0 8px; }
+  p { margin: 0 0 10px; color: var(--muted); }
+  .opsi { display: flex; flex-wrap: wrap; gap: 10px 20px; align-items: center; padding: 14px 0; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); margin: 16px 0; }
+  label { display: inline-flex; gap: 6px; align-items: center; }
+  input[type=file] { color: var(--muted); max-width: 100%; }
+  select { font: inherit; background: transparent; color: var(--fg); border: 1px solid var(--border); border-radius: 6px; padding: 3px 6px; }
+  select option { color: #000; }
+  button { font: inherit; font-weight: 600; height: 2.4rem; padding: 0 16px; border-radius: 6px; border: 1px solid var(--border); background: transparent; color: var(--fg); cursor: pointer; }
+  button.utama { background: var(--accent); border-color: var(--accent); color: #16110a; }
+  button:disabled { opacity: 0.45; cursor: not-allowed; }
+  .gulir { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.85rem; }
+  th, td { padding: 6px 8px; border-bottom: 1px solid var(--border); text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  th:first-child, td:first-child, th:last-child, td:last-child { text-align: left; }
+  th { color: var(--muted); font-weight: 600; }
+  td.beda { color: var(--beda); }
+  #status { min-height: 1.5em; }
+  .galeri { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
+  figure { margin: 0; }
+  figure canvas { width: 100%; height: auto; border-radius: 8px; border: 1px solid var(--border); display: block; }
+  figcaption { font-size: 0.8rem; color: var(--muted); margin-top: 4px; overflow-wrap: anywhere; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Uji statis mode browser</h1>
+  <p>Padanan <code>uji_statis.py</code>: FaceLandmarker (MediaPipe JS) dijalankan pada citra uji, lalu EAR, MAR, dan sudut kepala dihitung dengan rumus yang sama seperti aplikasi. Hasil bisa dibandingkan dengan <code>hasil_uji_statis/hasil_uji_statis.csv</code> dari versi lama.</p>
+
+  <div class="opsi">
+    <label>Citra uji <input type="file" id="berkas" accept="image/*" multiple></label>
+    <label>CSV versi lama (opsional) <input type="file" id="csv-lama" accept=".csv,text/csv"></label>
+    <label><input type="checkbox" id="opsi-clahe" checked> CLAHE</label>
+    <label>Delegate <select id="opsi-delegate"><option value="CPU">CPU</option><option value="GPU">GPU</option></select></label>
+    <button class="utama" id="tombol-proses" disabled>Proses</button>
+    <button id="tombol-csv" disabled>Unduh CSV</button>
+  </div>
+  <p id="status">Pilih citra uji (mis. keenam berkas test-*.jpg di folder repo).</p>
+
+  <div class="gulir"><table id="tabel"></table></div>
+  <div id="bagian-banding" hidden>
+    <h2>Perbandingan dengan versi lama (Face Mesh Python)</h2>
+    <div class="gulir"><table id="tabel-banding"></table></div>
+  </div>
+  <h2 id="judul-galeri" hidden>Citra beranotasi</h2>
+  <div class="galeri" id="galeri"></div>
+</main>
+<script src="logika.js"></script>
+<script src="clahe.js"></script>
+<script src="anotasi.js"></script>
+<script src="model.js"></script>
+<script src="uji_statis.js"></script>
+</body>
+</html>

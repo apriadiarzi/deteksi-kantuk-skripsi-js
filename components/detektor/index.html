@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Detektor Kantuk</title>
+<style>
+  :root {
+    --fg: #f5f4f0;
+    --muted: #9FB3C8;
+    --accent: #ff8a1e;
+    --accent-fg: #16110a;
+    --border: rgba(255, 255, 255, 0.10);
+    --surface: #0d2c4c;
+    --galat: #ff7b7b;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: transparent; color: var(--fg); font: 15px/1.45 Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  body { padding: 1px 0 8px; }
+
+  .layar { position: relative; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: var(--surface); }
+  .layar canvas { display: block; width: 100%; height: auto; }
+  .layar.kosong canvas { display: none; }
+  .layar.kosong { aspect-ratio: 16 / 9; }
+  .layar-pesan { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 16px; text-align: center; color: var(--muted); font-size: 0.9rem; }
+  .layar:not(.kosong) .layar-pesan { background: rgba(10, 30, 50, 0.65); }
+  .layar-pesan[hidden] { display: none; }
+
+  /* Video kamera hanya sumber gambar; yang ditampilkan adalah canvas beranotasi. */
+  video { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+
+  .kontrol { display: flex; gap: 8px; margin-top: 10px; }
+  button { font: inherit; font-weight: 600; font-size: 0.9rem; height: 2.6rem; padding: 0 18px; border-radius: 6px; cursor: pointer; border: 1px solid var(--border); background: transparent; color: var(--fg); }
+  button:hover:not(:disabled) { border-color: var(--fg); }
+  button:disabled { opacity: 0.45; cursor: not-allowed; }
+  button.utama { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); min-width: 7.5rem; }
+  button.utama:hover:not(:disabled) { background: #ffa347; border-color: #ffa347; }
+  button[hidden] { display: none; }
+
+  .status { margin: 10px 0 0; font-size: 0.85rem; color: var(--muted); min-height: 1.2em; }
+  .status.aktif { color: var(--accent); font-weight: 600; }
+  .status.aktif::before { content: ""; display: inline-block; width: 7px; height: 7px; margin-right: 6px; border-radius: 50%; background: var(--accent); vertical-align: 1px; }
+  .status.galat { color: var(--galat); }
+
+  details { margin-top: 12px; border-top: 1px solid var(--border); padding-top: 8px; }
+  summary { cursor: pointer; font-size: 0.72rem; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+  .isi { padding: 10px 0 2px; font-size: 0.85rem; }
+  .isi p { margin: 0 0 6px; }
+  .angka { font-variant-numeric: tabular-nums; }
+  table { width: 100%; border-collapse: collapse; margin: 8px 0 12px; font-size: 0.8rem; }
+  th, td { padding: 4px 6px; text-align: right; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  th:first-child, td:first-child { text-align: left; white-space: normal; }
+  th { color: var(--muted); font-weight: 600; }
+  .tabel-gulir { overflow-x: auto; }
+  .opsi { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; margin: 4px 0 10px; }
+  .opsi label { display: inline-flex; gap: 6px; align-items: center; }
+  select { font: inherit; background: transparent; color: var(--fg); border: 1px solid var(--border); border-radius: 6px; padding: 3px 6px; }
+  select option { color: #000; }
+  .kecil { color: var(--muted); font-size: 0.78rem; }
+  dl { display: grid; grid-template-columns: max-content 1fr; gap: 3px 12px; margin: 0 0 8px; font-size: 0.8rem; }
+  dt { color: var(--muted); }
+  dd { margin: 0; overflow-wrap: anywhere; }
+</style>
+</head>
+<body>
+  <div class="layar kosong" id="layar">
+    <canvas id="kanvas"></canvas>
+    <div class="layar-pesan" id="layar-pesan">Tekan START untuk memulai sesi monitoring.</div>
+  </div>
+  <video id="video" playsinline muted></video>
+
+  <div class="kontrol">
+    <button id="tombol-mulai" class="utama" disabled>Memuat…</button>
+    <button id="tombol-berhenti" hidden>STOP</button>
+  </div>
+  <p class="status" id="status"></p>
+
+  <details id="panel">
+    <summary>Pengujian &amp; diagnostik</summary>
+    <div class="isi">
+      <p>Waktu proses per frame (deteksi FaceLandmarker + perhitungan EAR/MAR/sudut), <span id="info-pemanasan"></span></p>
+      <div class="tabel-gulir">
+        <table>
+          <thead><tr><th>Bagian</th><th>Frame</th><th>Rata-rata</th><th>Median</th><th>P95</th><th>Min</th><th>Maks</th></tr></thead>
+          <tbody id="tabel-waktu"><tr><td colspan="7" class="kecil">Belum ada data.</td></tr></tbody>
+        </table>
+      </div>
+      <dl id="info"></dl>
+      <div class="opsi">
+        <label><input type="checkbox" id="opsi-clahe"> CLAHE (sama seperti versi lama)</label>
+        <label>Delegate <select id="opsi-delegate"><option value="CPU">CPU</option><option value="GPU">GPU</option></select></label>
+        <button id="tombol-csv" disabled>Unduh CSV</button>
+      </div>
+      <p class="kecil">Pengaturan ini hanya bisa diubah saat sesi tidak berjalan dan tersimpan di browser ini.</p>
+    </div>
+  </details>
+
+  <script src="logika.js"></script>
+  <script src="clahe.js"></script>
+  <script src="anotasi.js"></script>
+  <script src="model.js"></script>
+  <script src="detektor.js"></script>
+</body>
+</html>

@@ -1,0 +1,16 @@
+cryptography
+pyOpenSSL
+aiortc==1.9.0
+av==12.3.0
+numpy<2
+opencv-contrib-python<5
+pydub
+mediapipe==0.10.11
+streamlit==1.17.0
+streamlit_webrtc==0.43.4
+streamlit-nested-layout==0.1.1
+streamlit-autorefresh
+altair==4.0
+requests
+python-decouple
+psycopg2-binary

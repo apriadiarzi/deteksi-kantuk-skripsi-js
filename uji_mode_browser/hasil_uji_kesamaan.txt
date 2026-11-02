@@ -1,0 +1,7 @@
+Uji kesamaan mode browser vs mode server (seed 2026, Python 3.10.4, mediapipe 0.10.0, OpenCV 4.8.1, Node v24.14.0)
+1. Indikator: 3000 set landmark acak (1729 kasus EAR/MAR = 0 karena titik di luar frame atau pembagi nol) -> 3000 identik, 0 berbeda. Koordinat piksel dan teks di layar identik; nilai desimal berbeda hanya di digit terakhir (selisih maks 2.8e-14): sudut 478 kasus (atan2), EAR/MAR 5 nilai (pow(x, 0.5) Python Windows != sqrt)
+2. Logika: 60 skenario, 152659 frame, 65 kali STOP/START, 3104 kejadian tercatat, 1077 permintaan email, 42093 frame alarm -> 152659 frame identik, 0 berbeda
+3. Email: teks 3 jenis kejadian + simulasi 3000 langkah (1196 email terkirim, 340 di antaranya email ringkasan) -> identik
+4. CLAHE: 50 citra, 14066565 piksel (OpenCV 4.8.1) -> 14066565 piksel identik, 0 berbeda, selisih maks 0 level
+   waktu clahe.js di Node (PC ini) untuk 640x360: ±10.6 ms per frame
+SEMUA IDENTIK
