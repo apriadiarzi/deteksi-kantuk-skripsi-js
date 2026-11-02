@@ -3,6 +3,7 @@ import re
 import random
 import string
 import traceback
+import importlib.util
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -44,6 +45,14 @@ CAMERA_OFF_GRACE = 3.0
 # browser = deteksi di browser (MediaPipe JS), video tidak dikirim ke server.
 # server  = versi lama: video lewat streamlit-webrtc + TURN Metered, diproses MediaPipe Python.
 MODE_DETEKSI_LABEL = {"browser": "Browser (baru)", "server": "Server (lama)"}
+# Paket mode server hanya terpasang di Python 3.11 ke bawah (lihat requirements.txt);
+# tanpa paket itu hanya mode browser yang ditawarkan.
+MODE_SERVER_TERSEDIA = all(
+    importlib.util.find_spec(m)
+    for m in ("av", "aiortc", "streamlit_webrtc", "cv2", "mediapipe", "pydub")
+)
+if not MODE_SERVER_TERSEDIA:
+    del MODE_DETEKSI_LABEL["server"]
 MODE_DETEKSI = config('MODE_DETEKSI', default='browser').strip().lower()
 if MODE_DETEKSI not in MODE_DETEKSI_LABEL:
     MODE_DETEKSI = 'browser'
@@ -613,6 +622,9 @@ if logged_in:
             help="Browser: deteksi berjalan di perangkat, video tidak dikirim ke server. "
                  "Server: versi lama, video dikirim lewat WebRTC dan diproses di server. "
                  "Bawaan diatur lewat MODE_DETEKSI di .env/Secrets.")
+        if not MODE_SERVER_TERSEDIA:
+            st.caption("Mode server tidak tersedia: paketnya hanya bisa dipasang di Python 3.11 "
+                       "ke bawah.")
 
         if st.button("Keluar"):
             # Auto-save sesi aktif sebelum logout

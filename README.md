@@ -23,7 +23,9 @@ tetap ditangani Python dan sama untuk kedua mode. Skema database tidak berubah.
   sesi berjalan, jadi kedua mode bisa diuji bergantian pada deployment yang sama tanpa redeploy.
 
 Mode browser tidak mengimpor streamlit-webrtc, aiortc, av, OpenCV, maupun MediaPipe Python, dan tidak
-memanggil API Metered. Paket-paket itu tetap ada di `requirements.txt` karena mode server masih dipakai.
+memanggil API Metered. Paket-paket itu tetap ada di `requirements.txt` karena mode server masih dipakai,
+tetapi versi yang dikunci hanya punya wheel sampai Python 3.11. Di Python 3.12 ke atas paket itu dilewati
+(penanda `python_version` di `requirements.txt`) dan sidebar hanya menawarkan mode browser.
 
 ## Cara kerja mode browser
 
@@ -91,7 +93,8 @@ kamera → [CLAHE] → FaceLandmarker → EAR/MAR/sudut
    - **app baru** (disarankan, supaya versi lama di `main` tetap jalan): *Create app* → repo
      `apriadiarzi/deteksi-kantuk-skripsi`, branch `deteksi-browser`, main file `2_🥱_Deteksi_Kantuk.py`;
    - atau ubah branch app yang sudah ada di *Settings*.
-3. *Advanced settings* → Python 3.10 → Secrets: salin isi `.env` dalam format TOML, mis.
+3. *Advanced settings* → **Python 3.11** (atau 3.10 kalau masih ada) → Secrets: salin isi `.env` dalam
+   format TOML, mis.
    ```toml
    DATABASE_URL = "postgresql://…"
    EMAIL_PASSWORD = "…"
@@ -100,7 +103,10 @@ kamera → [CLAHE] → FaceLandmarker → EAR/MAR/sudut
    METERED_API_KEY = "…"
    MODE_DETEKSI = "browser"
    ```
-4. `requirements.txt` dan `packages.txt` tidak perlu diubah.
+4. Versi Python hanya bisa dipilih saat app dibuat. Reboot atau push tidak mengubahnya; untuk menggantinya,
+   catat Secrets, hapus app, lalu deploy ulang. Cek baris `Using Python 3.x.y` di awal log. Kalau Streamlit
+   Cloud memakai Python 3.12 ke atas (bawaannya sekarang versi terbaru), app tetap terpasang dan mode browser
+   berjalan, tetapi mode server tidak tersedia, jadi pembandingan dengan mode server butuh Python 3.11.
 
 ## Pengujian
 
