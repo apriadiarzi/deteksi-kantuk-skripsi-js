@@ -1,20 +1,14 @@
 import streamlit as st
-import json
 from datetime import datetime, date
-from urllib.parse import unquote
-import streamlit.components.v1 as components
-from streamlit_autorefresh import st_autorefresh
-from database import (
-    get_sessions_by_username, get_events_by_session,
-    resolve_guest_user, GUEST_STORAGE_KEY, GUEST_COOKIE_VALUE,
-    get_username_by_token, clear_session_token, AUTH_STORAGE_KEY,
-)
+
+import sesi_login
+from database import get_sessions_by_username, get_events_by_session, resolve_guest_user
 
 st.set_page_config(
     page_title="Histori Berkendara",
     page_icon="https://cdn-icons-png.flaticon.com/512/1464/1464723.png",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="auto",
 )
 
 # ── CSS ───────────────────────────────────────────────────────────────────────
@@ -150,71 +144,13 @@ h1, h2, h3 { font-family: 'Space Grotesk', sans-serif; }
     .stat-value { font-size: 1.35rem; }
     .summary-row { gap: 1.5rem; }
 }
+""" + sesi_login.CSS + """
 </style>
 """, unsafe_allow_html=True)
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
-def set_cookie(username):
-    st.session_state["auth_user"] = username
-    # Penghapusan token di localStorage ditunda ke render berikutnya.
-    st.session_state["pending_auth_storage_write"] = "__clear__"
-
-def get_cookie():
-    return st.session_state.get("auth_user") or None
-
-def flush_pending_auth_storage_write():
-    if "pending_auth_storage_write" in st.session_state:
-        pending = st.session_state.pop("pending_auth_storage_write")
-        if pending == "__clear__":
-            js = f"try {{ localStorage.removeItem('{AUTH_STORAGE_KEY}'); }} catch(e) {{}}"
-        else:
-            js = f"try {{ localStorage.setItem('{AUTH_STORAGE_KEY}', '{pending}'); }} catch(e) {{}}"
-        components.html(f"<script>{js}</script>", height=0)
-
-flush_pending_auth_storage_write()
-
-# ── Pulihkan login dari token di localStorage browser ────────────────────────
-# Token dari localStorage divalidasi ke database sebelum login dipulihkan.
-query_params = st.experimental_get_query_params()
-needs_auth_restore = "auth_user" not in st.session_state and not st.session_state.get("auth_restore_done")
-
-if needs_auth_restore:
-    if "authtok" in query_params:
-        token = query_params["authtok"][0]
-        st.session_state["auth_restore_done"] = True
-        if token == GUEST_COOKIE_VALUE:
-            st.session_state["auth_user"] = GUEST_COOKIE_VALUE
-        elif token and token != "-":
-            restored_username = get_username_by_token(token)
-            if restored_username:
-                st.session_state["auth_user"] = restored_username
-            else:
-                components.html(f"""
-                <script>
-                try {{ localStorage.removeItem('{AUTH_STORAGE_KEY}'); }} catch(e) {{}}
-                </script>
-                """, height=0)
-        components.html("""
-        <script>
-        window.parent.history.replaceState(null, "", window.parent.location.pathname);
-        </script>
-        """, height=0)
-        st.experimental_rerun()
-    else:
-        components.html(f"""
-        <script>
-        const p = new URLSearchParams(window.parent.location.search);
-        if (!p.has('authtok')) {{
-            const tok = localStorage.getItem('{AUTH_STORAGE_KEY}') || '-';
-            const url = window.parent.location.pathname + '?authtok=' + encodeURIComponent(tok);
-            window.parent.history.replaceState(null, '', url);
-        }}
-        </script>
-        """, height=0)
-        st.session_state["auth_restore_attempt"] = st.session_state.get("auth_restore_attempt", 0) + 1
-        st_autorefresh(interval=200, limit=2, key=f"auth_restore_{st.session_state['auth_restore_attempt']}")
-        st.info("Memuat sesi...")
-        st.stop()
+# ── Login ─────────────────────────────────────────────────────────────────────
+# Sesi tamu dibaca dari localStorage lewat komponen yang sama (lihat sesi_login.py).
+isi_browser = sesi_login.pulihkan_login(baca_tamu=True)
 
 def fmt_dur(seconds):
     if seconds is None: return "-"
@@ -233,7 +169,7 @@ EVENT_LABEL = {
 EVENT_COLOR = {"eye_close": "var(--primary)", "yawn": "var(--accent)", "head_tilt": "var(--accent-bright)"}
 
 # ── Auth ──────────────────────────────────────────────────────────────────────
-user, is_guest = resolve_guest_user(get_cookie())
+user, is_guest = resolve_guest_user(sesi_login.akun())
 
 if not user and not is_guest:
     st.error("⛔ Kamu belum login.")
@@ -261,9 +197,7 @@ with st.sidebar:
     """, unsafe_allow_html=True)
 
     if st.button("Keluar"):
-        if not is_guest:
-            clear_session_token(user)
-        set_cookie("")
+        sesi_login.atur_login("")
         st.experimental_rerun()
 
 # ── Header ────────────────────────────────────────────────────────────────────
@@ -278,38 +212,19 @@ st.markdown(f"""
 
 events_by_session = None
 if is_guest:
-    query_params = st.experimental_get_query_params()
-    # Data tamu di URL basi kalau sesi tamu baru saja disimpan.
-    need_fresh = st.session_state.get("guest_history_dirty", False)
-    if "gdata" in query_params and not need_fresh:
-        try:
-            guest_raw = json.loads(unquote(query_params["gdata"][0]))
-        except Exception:
-            guest_raw = []
-        sessions = [
-            (s.get("id"), s.get("start_time"), s.get("end_time"), s.get("duration"),
-             s.get("total_eye_close", 0), s.get("total_yawn", 0), s.get("total_head_tilt", 0))
-            for s in guest_raw
-        ]
-        events_by_session = {
-            s.get("id"): [(e["event_type"], e["event_time"], e["duration"]) for e in s.get("events", [])]
-            for s in guest_raw
-        }
-    else:
-        # Selalu ambil ulang data tamu dari localStorage.
-        components.html(f"""
-        <script>
-        const raw = localStorage.getItem('{GUEST_STORAGE_KEY}') || '[]';
-        const url = window.parent.location.pathname + '?gdata=' + encodeURIComponent(raw);
-        window.parent.history.replaceState(null, '', url);
-        </script>
-        """, height=0)
-        st.session_state["guest_history_dirty"] = False
-        # Key autorefresh unik per kunjungan halaman.
-        st.session_state["guest_fetch_attempt"] = st.session_state.get("guest_fetch_attempt", 0) + 1
-        st_autorefresh(interval=300, limit=2, key=f"guest_data_fetch_{st.session_state['guest_fetch_attempt']}")
+    if "tamu" not in (isi_browser or {}):
         st.info("Memuat histori tamu...")
         st.stop()
+    guest_raw = isi_browser["tamu"]
+    sessions = [
+        (s.get("id"), s.get("start_time"), s.get("end_time"), s.get("duration"),
+         s.get("total_eye_close", 0), s.get("total_yawn", 0), s.get("total_head_tilt", 0))
+        for s in guest_raw
+    ]
+    events_by_session = {
+        s.get("id"): [(e["event_type"], e["event_time"], e["duration"]) for e in s.get("events", [])]
+        for s in guest_raw
+    }
 else:
     sessions = get_sessions_by_username(user)
 

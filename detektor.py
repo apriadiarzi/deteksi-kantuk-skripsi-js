@@ -111,10 +111,8 @@ def _proses_satu(p, user, is_guest, notifier, info):
         notifier.flush_held_emails()
 
     elif jenis == "kejadian":
-        if is_guest:
-            # Kejadian tamu disimpan komponen langsung ke localStorage.
-            ss["guest_history_dirty"] = True
-        else:
+        # Kejadian tamu disimpan komponen langsung ke localStorage.
+        if not is_guest:
             sid = sesi_db()
             if sid is not None:
                 save_session_progress(sid, [format_kejadian(p)])
@@ -132,9 +130,7 @@ def _proses_satu(p, user, is_guest, notifier, info):
         notifier.flush_held_emails()
 
     elif jenis == "selesai":
-        if is_guest:
-            ss["guest_history_dirty"] = True
-        elif rec["db_id"] is not None:
+        if not is_guest and rec["db_id"] is not None:
             save_session_progress(rec["db_id"], [])
         if ss["detektor_sesi_aktif"] == uid:
             ss["detektor_sesi_aktif"] = None

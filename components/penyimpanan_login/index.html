@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<title>Penyimpanan login</title>
+</head>
+<body>
+<script>
+/*
+ * Penghubung localStorage browser untuk login yang bertahan (lihat sesi_login.py), tanpa tampilan.
+ * Setiap render: tulis token yang tertunda (kalau ada), lalu laporkan isi localStorage ke Python.
+ * Laporan hanya dikirim kalau isinya berubah, karena setiap laporan memicu satu rerun Streamlit.
+ */
+(function () {
+  "use strict";
+
+  let terakhirDitulis = null, laporanTerakhir = null;
+
+  function kirimStreamlit(type, data) {
+    window.parent.postMessage(Object.assign({ isStreamlitMessage: true, type }, data), "*");
+  }
+
+  function baca(kunci) {
+    try { return localStorage.getItem(kunci); } catch (e) { return null; }
+  }
+
+  window.addEventListener("message", (ev) => {
+    const d = ev.data;
+    if (!d || d.type !== "streamlit:render") return;
+    const a = d.args || {};
+
+    const t = a.tulis;
+    if (t && t.id !== terakhirDitulis) {
+      try {
+        if (t.nilai == null) localStorage.removeItem(a.kunci);
+        else localStorage.setItem(a.kunci, t.nilai);
+      } catch (e) { /* localStorage tidak tersedia (mis. diblokir browser) */ }
+      terakhirDitulis = t.id;
+    }
+
+    const laporan = { sesi: a.sesi, token: baca(a.kunci), ditulis: terakhirDitulis };
+    if (a.kunci_tamu) {
+      try { laporan.tamu = JSON.parse(baca(a.kunci_tamu) || "[]"); } catch (e) { laporan.tamu = []; }
+    }
+    const teks = JSON.stringify(laporan);
+    if (teks !== laporanTerakhir) {
+      laporanTerakhir = teks;
+      kirimStreamlit("streamlit:setComponentValue", { value: laporan, dataType: "json" });
+    }
+  });
+
+  kirimStreamlit("streamlit:componentReady", { apiVersion: 1 });
+  kirimStreamlit("streamlit:setFrameHeight", { height: 0 });
+})();
+</script>
+</body>
+</html>

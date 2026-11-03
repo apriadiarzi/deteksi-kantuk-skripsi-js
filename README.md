@@ -52,6 +52,7 @@ kamera → [CLAHE] → FaceLandmarker → EAR/MAR/sudut
 | `2_🥱_Deteksi_Kantuk.py` | halaman utama: masuk, daftar + OTP, mode tamu, slider ambang, detektor |
 | `pages/3_🕓_Histori.py` | histori sesi (akun dari database, tamu dari `localStorage`) |
 | `detektor.py` | sisi Python komponen detektor: terima pesan, simpan ke database, email darurat |
+| `sesi_login.py`, `components/penyimpanan_login/` | login yang bertahan saat halaman dimuat ulang atau koneksi tersambung ulang: token di `localStorage` browser, divalidasi ke database |
 | `email_darurat.py` | teks email darurat, tautan lokasi, dan jeda 2 menit |
 | `database.py` | Neon PostgreSQL: akun, OTP, sesi berkendara, kejadian kantuk |
 | `components/detektor/` | komponen browser (lihat tabel di bawah) |

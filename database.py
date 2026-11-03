@@ -207,11 +207,19 @@ def get_user_email(username):
 # ─── Token login ──────────────────────────────────────────────────────────────
 
 def set_session_token(username):
-    """Buat token login acak untuk akun ini dan simpan di database."""
-    token = secrets.token_hex(32)
+    """Token login akun ini; dibuat sekali lalu dipakai ulang di setiap perangkat.
+
+    Token yang sudah ada tidak diganti, jadi login di perangkat lain tidak mengeluarkan perangkat
+    yang sudah masuk. Dibuat dalam satu pernyataan supaya dua login bersamaan mendapat token yang sama.
+    """
     with _db(commit=True) as cursor:
-        cursor.execute('UPDATE users SET session_token=%s WHERE username=%s', (token, username))
-    return token
+        cursor.execute(
+            'UPDATE users SET session_token = COALESCE(session_token, %s) WHERE username=%s '
+            'RETURNING session_token',
+            (secrets.token_hex(32), username)
+        )
+        row = cursor.fetchone()
+        return row[0] if row else None
 
 def get_username_by_token(token):
     """Cari pemilik token login."""
@@ -221,13 +229,6 @@ def get_username_by_token(token):
         cursor.execute('SELECT username FROM users WHERE session_token=%s', (token,))
         result = cursor.fetchone()
         return result[0] if result else None
-
-def clear_session_token(username):
-    """Hapus token login saat logout."""
-    if not username:
-        return
-    with _db(commit=True) as cursor:
-        cursor.execute('UPDATE users SET session_token=NULL WHERE username=%s', (username,))
 
 
 # ─── Sessions ─────────────────────────────────────────────────────────────────

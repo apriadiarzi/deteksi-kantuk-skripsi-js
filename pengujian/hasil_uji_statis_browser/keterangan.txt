@@ -1,0 +1,28 @@
+Hasil uji statis versi browser (MediaPipe Tasks Vision / JavaScript)
+=====================================================================
+
+Tanggal uji     : 2 November 2026
+Halaman uji     : https://deteksi-kantuk-js.streamlit.app/
+                  (halaman uji statis: komponen detektor, uji_statis.html)
+Pustaka         : @mediapipe/tasks-vision 0.10.35, FaceLandmarker mode IMAGE
+                  (478 titik wajah, 1 wajah, delegate CPU)
+Pra-proses      : CLAHE aktif (clipLimit 3,0; tile 8 x 8) pada kanal Y
+Threshold       : EAR 0,23 ; MAR 0,60 ; sudut kepala 20 derajat
+Browser         : Chrome 152 di Windows (laptop penulis)
+Citra uji       : pengujian/citra_uji/ (6 citra, sama dengan uji versi Python)
+
+Isi folder:
+- hasil_uji_statis_browser.csv : tabel hasil (pemisah ; dan desimal koma)
+- uji_<nama citra>.jpg         : citra hasil anotasi (titik mata, titik mulut,
+                                 garis kemiringan kepala, nilai EAR/MAR/sudut).
+                                 Citra yang lebarnya di bawah 640 piksel
+                                 diperbesar ke 640 piksel hanya untuk tampilan.
+
+Catatan:
+- Hasil uji versi Python yang lama tetap ada di folder pengujian/hasil_uji_statis/.
+- Citra test-head-tilt.jpeg kini disimpulkan "Mata tertutup dan kepala miring"
+  karena mata pada citra itu memang terpejam (EAR 0,075). Versi Python
+  sebelumnya membaca EAR 0,255 sehingga hanya menyimpulkan "Kepala miring".
+- Citra anotasi digambar ulang dari koordinat titik wajah hasil deteksi di
+  browser dengan kode anotasi yang sama (anotasi.js, uji_statis.js). Checksum
+  citra hasil CLAHE cocok dengan hasil di browser untuk keenam citra.

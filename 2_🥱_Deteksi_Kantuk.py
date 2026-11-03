@@ -6,16 +6,14 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
 import streamlit as st
-import streamlit.components.v1 as components
 from streamlit_autorefresh import st_autorefresh
 
 import detektor
+import sesi_login
 from database import (
     create_db, add_user, check_username_exists, check_login,
     save_otp, verify_otp, get_user_email,
     resolve_guest_user, GUEST_COOKIE_VALUE,
-    set_session_token, get_username_by_token, clear_session_token,
-    AUTH_STORAGE_KEY,
 )
 from hashlib import sha256
 from decouple import config
@@ -26,33 +24,6 @@ create_db()
 # ── Konstanta email pengirim ──────────────────────────────────────────────────
 EMAIL_SENDER   = "deteksikantuk@gmail.com"
 EMAIL_PASSWORD = config('EMAIL_PASSWORD')
-
-# ── Sesi login ────────────────────────────────────────────────────────────────
-# Login disimpan di session_state, plus token di localStorage agar bertahan saat refresh.
-def set_cookie(username):
-    st.session_state["auth_user"] = username
-    if username == GUEST_COOKIE_VALUE:
-        stored_value = GUEST_COOKIE_VALUE
-    elif username:
-        stored_value = set_session_token(username)
-    else:
-        stored_value = None
-
-    # Penulisan ke localStorage ditunda ke render berikutnya.
-    st.session_state["pending_auth_storage_write"] = stored_value if stored_value else "__clear__"
-
-def get_cookie():
-    return st.session_state.get("auth_user") or None
-
-def flush_pending_auth_storage_write():
-    """Jalankan penulisan localStorage yang ditunda oleh set_cookie()."""
-    if "pending_auth_storage_write" in st.session_state:
-        pending = st.session_state.pop("pending_auth_storage_write")
-        if pending == "__clear__":
-            js = f"try {{ localStorage.removeItem('{AUTH_STORAGE_KEY}'); }} catch(e) {{}}"
-        else:
-            js = f"try {{ localStorage.setItem('{AUTH_STORAGE_KEY}', '{pending}'); }} catch(e) {{}}"
-        components.html(f"<script>{js}</script>", height=0)
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
@@ -321,69 +292,24 @@ div[data-baseweb="input"].st-ck, div[data-baseweb="input"].st-cm {
     .auth-title { font-size: 1.3rem; }
     .app-header h1 { font-size: 1.1rem; }
 }
+__CSS_PENYIMPANAN_LOGIN__
 </style>
-""".replace("__BG_COLOR__", BG_COLOR)
+""".replace("__BG_COLOR__", BG_COLOR).replace("__CSS_PENYIMPANAN_LOGIN__", sesi_login.CSS)
 
 # ─── App ─────────────────────────────────────────────────────────────────────
-query_params = st.experimental_get_query_params()
-
-# Sesi baru perlu memulihkan login dari token di localStorage.
-needs_auth_restore = "auth_user" not in st.session_state and not st.session_state.get("auth_restore_done")
-
-# ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="Sistem Pendeteksi Kantuk",
     page_icon="https://cdn-icons-png.flaticon.com/512/1464/1464723.png",
     layout="wide",
-    initial_sidebar_state="collapsed" if needs_auth_restore else ("expanded" if get_cookie() else "collapsed"),
+    # auto: terbuka di desktop, tertutup di ponsel supaya tidak menutupi kamera.
+    initial_sidebar_state="auto" if sesi_login.akun() else "collapsed",
 )
 st.markdown(MOBILE_CSS, unsafe_allow_html=True)
-flush_pending_auth_storage_write()
 
-# ── Pulihkan login dari token di localStorage browser ────────────────────────
-# Token dibaca lewat JS, dikirim lewat query param, lalu divalidasi ke database (sekali per sesi).
-if needs_auth_restore:
-    if "authtok" in query_params:
-        token = query_params["authtok"][0]
-        st.session_state["auth_restore_done"] = True
-        if token == GUEST_COOKIE_VALUE:
-            st.session_state["auth_user"] = GUEST_COOKIE_VALUE
-        elif token and token != "-":
-            restored_username = get_username_by_token(token)
-            if restored_username:
-                st.session_state["auth_user"] = restored_username
-            else:
-                # Token basi/tidak valid — bersihkan supaya tidak diulang tiap kunjungan.
-                components.html(f"""
-                <script>
-                try {{ localStorage.removeItem('{AUTH_STORAGE_KEY}'); }} catch(e) {{}}
-                </script>
-                """, height=0)
-        # Hapus token dari address bar.
-        components.html("""
-        <script>
-        window.parent.history.replaceState(null, "", window.parent.location.pathname);
-        </script>
-        """, height=0)
-        st.experimental_rerun()
-    else:
-        components.html(f"""
-        <script>
-        const p = new URLSearchParams(window.parent.location.search);
-        if (!p.has('authtok')) {{
-            const tok = localStorage.getItem('{AUTH_STORAGE_KEY}') || '-';
-            const url = window.parent.location.pathname + '?authtok=' + encodeURIComponent(tok);
-            window.parent.history.replaceState(null, '', url);
-        }}
-        </script>
-        """, height=0)
-        # Key autorefresh unik per percobaan pemulihan.
-        st.session_state["auth_restore_attempt"] = st.session_state.get("auth_restore_attempt", 0) + 1
-        st_autorefresh(interval=200, limit=2, key=f"auth_restore_{st.session_state['auth_restore_attempt']}")
-        st.caption("Memuat sesi...")
-        st.stop()
+# Login dipulihkan dari token di browser setiap kali sesi Streamlit baru dimulai (lihat sesi_login.py).
+sesi_login.pulihkan_login()
 
-user, is_guest = resolve_guest_user(get_cookie())
+user, is_guest = resolve_guest_user(sesi_login.akun())
 logged_in = bool(user or is_guest)
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -419,9 +345,7 @@ if logged_in:
         if st.button("Keluar"):
             # Sesi yang masih berjalan disimpan dulu sebelum logout.
             detektor.tutup_sesi_aktif(is_guest)
-            if not is_guest:
-                clear_session_token(user)
-            set_cookie("")
+            sesi_login.atur_login("")
             st.experimental_rerun()
 
     st.markdown("""
@@ -508,7 +432,7 @@ else:
                     if not check_username_exists(login_user):
                         st.session_state['login_error'] = "Username belum terdaftar. Silakan daftar terlebih dahulu."
                     elif check_login(login_user, sha256(login_pw.encode()).hexdigest()):
-                        set_cookie(login_user)
+                        sesi_login.atur_login(login_user)
                     else:
                         st.session_state['login_error'] = "Password salah. Silakan coba lagi."
                 except Exception as e:
@@ -530,7 +454,7 @@ else:
 
             st.markdown('<div class="btn-link-marker"></div>', unsafe_allow_html=True)
             if st.button("Coba tanpa akun", key="guest_btn_masuk"):
-                set_cookie(GUEST_COOKIE_VALUE)
+                sesi_login.atur_login(GUEST_COOKIE_VALUE)
                 st.experimental_rerun()
 
     # ── DAFTAR ────────────────────────────────────────────────────────────────
@@ -588,7 +512,7 @@ else:
                         elif not reg_email:
                             # Tanpa email — daftar langsung, tanpa verifikasi OTP
                             add_user(reg_user, "", pw_hash)
-                            set_cookie(reg_user)
+                            sesi_login.atur_login(reg_user)
                         else:
                             otp = generate_otp()
                             save_otp(reg_email, otp, reg_user, pw_hash)
@@ -649,7 +573,7 @@ else:
                             valid, msg = False, "Gagal menghubungi server. Periksa koneksi internet kamu lalu coba lagi."
                     st.session_state['verifying_otp'] = False
                     if valid:
-                        set_cookie(st.session_state['reg_username'])
+                        sesi_login.atur_login(st.session_state['reg_username'])
                     else:
                         st.session_state['otp_error'] = msg
                     st.experimental_rerun()
@@ -696,5 +620,5 @@ else:
 
             st.markdown('<div class="btn-link-marker"></div>', unsafe_allow_html=True)
             if st.button("Coba tanpa akun", key="guest_btn_daftar"):
-                set_cookie(GUEST_COOKIE_VALUE)
+                sesi_login.atur_login(GUEST_COOKIE_VALUE)
                 st.experimental_rerun()
