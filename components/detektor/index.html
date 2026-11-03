@@ -25,6 +25,9 @@
   .layar-pesan { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 16px; text-align: center; color: var(--muted); font-size: 0.9rem; }
   .layar:not(.kosong) .layar-pesan { background: rgba(10, 30, 50, 0.85); color: var(--fg); }
   .layar-pesan[hidden] { display: none; }
+  /* Bingkai berkedip saat alarm menyala: tanda selain suara, mis. saat volume ponsel 0. */
+  .layar.alarm::after { content: ""; position: absolute; inset: 0; border: 6px solid #ff3b3b; border-radius: 10px; pointer-events: none; animation: kedip 0.5s steps(1) infinite; }
+  @keyframes kedip { 50% { opacity: 0; } }
 
   /* Video kamera hanya sumber gambar; yang ditampilkan adalah canvas beranotasi. */
   video { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
@@ -65,7 +68,7 @@
 <body>
   <div class="layar kosong" id="layar">
     <canvas id="kanvas"></canvas>
-    <div class="layar-pesan" id="layar-pesan">Tekan START untuk memulai sesi monitoring.</div>
+    <div class="layar-pesan" id="layar-pesan"><div>Tekan START untuk memulai sesi monitoring.<br><span class="kecil">Alarm memakai volume media ponsel, pastikan tidak 0.</span></div></div>
   </div>
   <video id="video" playsinline muted></video>
 

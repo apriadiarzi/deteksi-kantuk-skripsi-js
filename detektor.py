@@ -10,16 +10,21 @@ mengirim pesan kecil saat ada kejadian, dan setiap pesan memicu satu rerun:
   selesai   — STOP ditekan atau kamera tidak aktif >= 3 detik
 Pesan dikirim sebagai antrean bernomor urut. Nomor terakhir yang sudah diproses dikembalikan
 lewat argumen `ack`, jadi pesan tidak hilang atau terproses dua kali walaupun rerun terpotong.
+
+Kalau sinyal hilang, deteksi tetap berjalan di browser dan antrean dikirim setelah tersambung lagi.
+Streamlit membuat sesi baru saat tersambung ulang, jadi id baris sesi di database ikut dikirim
+komponen supaya sesi baru melanjutkan baris yang sama, bukan membuat perjalanan baru.
 """
 import mimetypes
 import os
+import threading
 from datetime import datetime, timedelta
 
 import streamlit as st
 import streamlit.components.v1 as components
 from decouple import config
 
-from database import start_session, save_session_progress, GUEST_STORAGE_KEY
+from database import start_session, save_session_progress, session_belongs_to_user, GUEST_STORAGE_KEY
 from email_darurat import EmailDarurat, PESAN_EMAIL
 
 # Panel "Pengujian & diagnostik" di bawah video; disembunyikan kecuali PANEL_PENGUJIAN=1.
@@ -35,6 +40,11 @@ _komponen = components.declare_component(
 )
 
 KEY = "detektor"
+
+# Satu pengirim email darurat per akun di proses server ini. Sesi Streamlit berganti setiap kali
+# koneksi tersambung ulang, tetapi jeda 2 menit dan email ringkasan yang tertahan harus berlanjut.
+_notifier_akun = {}
+_kunci_notifier = threading.Lock()
 
 
 def waktu_wib(epoch_ms):
@@ -59,11 +69,20 @@ def _state():
         ss["detektor_sesi"] = {}          # id sesi dari komponen -> {"db_id", "kejadian"}
     if "detektor_sesi_aktif" not in ss:
         ss["detektor_sesi_aktif"] = None  # id sesi yang sedang berjalan
-    if "email_darurat" not in ss:
-        ss["email_darurat"] = EmailDarurat()
     if "detektor_info" not in ss:
         ss["detektor_info"] = []          # pemberitahuan yang ditampilkan di bawah komponen
     return ss
+
+
+def _notifier(user):
+    if not user:
+        # Tamu tidak mengirim email; cukup satu per sesi.
+        ss = st.session_state
+        if "email_darurat" not in ss:
+            ss["email_darurat"] = EmailDarurat()
+        return ss["email_darurat"]
+    with _kunci_notifier:
+        return _notifier_akun.setdefault(user, EmailDarurat())
 
 
 def tutup_sesi_aktif(is_guest):
@@ -98,6 +117,11 @@ def _proses_satu(p, user, is_guest, notifier, info):
     if not uid:
         return
     rec = ss["detektor_sesi"].setdefault(uid, {"db_id": None, "kejadian": 0})
+    db_id = p.get("db_id")
+    if not is_guest and rec["db_id"] is None and isinstance(db_id, int):
+        # Sesi Streamlit baru setelah koneksi tersambung ulang: lanjutkan baris sesi yang sudah ada.
+        if session_belongs_to_user(db_id, user):
+            rec["db_id"] = db_id
 
     def sesi_db():
         if not is_guest and rec["db_id"] is None:
@@ -135,7 +159,11 @@ def _proses_satu(p, user, is_guest, notifier, info):
         if ss["detektor_sesi_aktif"] == uid:
             ss["detektor_sesi_aktif"] = None
         _catat_waktu_proses(p)
-        info.append(("success", f"Sesi tersimpan! {rec['kejadian']} kejadian kantuk tercatat."))
+        # Jumlah dari komponen mencakup kejadian sebelum koneksi tersambung ulang.
+        jumlah = p.get("jumlah_kejadian")
+        if not isinstance(jumlah, int):
+            jumlah = rec["kejadian"]
+        info.append(("success", f"Sesi tersimpan! {jumlah} kejadian kantuk tercatat."))
 
 
 def _proses_nilai(nilai, user, is_guest, notifier, info):
@@ -168,14 +196,14 @@ def proses_pesan(user, is_guest, recipient_emails):
     mutakhir dan ack ikut terkirim di render ini juga, tanpa rerun tambahan.
     """
     ss = _state()
-    notifier = ss["email_darurat"]
+    notifier = _notifier(user)
     notifier.email_recipients = recipient_emails
     _proses_nilai(ss.get(KEY), user, is_guest, notifier, ss["detektor_info"])
 
 
 def render(user, is_guest, recipient_emails, thresholds):
     ss = _state()
-    notifier = ss["email_darurat"]
+    notifier = _notifier(user)
     notifier.email_recipients = recipient_emails
     info = ss["detektor_info"]
 
@@ -189,6 +217,7 @@ def render(user, is_guest, recipient_emails, thresholds):
         ack=dict(ss["detektor_ack"]),
         flush_dalam_ms=notifier.sisa_jeda_ms(),
         panel_pengujian=PANEL_PENGUJIAN,
+        sesi_db={uid: r["db_id"] for uid, r in ss["detektor_sesi"].items() if r["db_id"] is not None},
     )
     # Biasanya nilai yang sama dengan yang sudah diproses proses_pesan(), jadi semua dilewati.
     _proses_nilai(nilai, user, is_guest, notifier, info)

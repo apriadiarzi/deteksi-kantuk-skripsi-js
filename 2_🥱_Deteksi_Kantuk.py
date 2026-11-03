@@ -274,6 +274,10 @@ div[data-baseweb="input"].st-ck, div[data-baseweb="input"].st-cm {
 /* ── Alert box ───────────────────────────────────────────── */
 [data-testid="stAlert"] { border-radius: var(--radius-sm); }
 
+/* Dialog "Connection error" bawaan Streamlit disembunyikan: saat sinyal hilang deteksi tetap
+   berjalan di browser, status di bawah video yang memberi tahu, dan koneksi pulih sendiri. */
+div:has(> [data-focus-lock-disabled] > [data-baseweb="modal"]) { display: none !important; }
+
 /* ── Mobile ──────────────────────────────────────────────── */
 @media (max-width: 768px) {
     [data-testid="stAppViewContainer"] > .main > div {

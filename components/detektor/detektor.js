@@ -49,12 +49,14 @@
     ack: null,
     flush_dalam_ms: null,
     panel_pengujian: false,
+    sesi_db: {},
   };
 
   window.addEventListener("message", (ev) => {
     const d = ev.data;
     if (!d || d.type !== "streamlit:render") return;
     Object.assign(args, d.args || {});
+    Object.assign(dbSesi, args.sesi_db || {});
     terapkanPanel();
     terimaAck();
     aturFlush();
@@ -217,6 +219,7 @@
   function hentikan(alasan) {
     if (!berjalan) return;
     berjalan = false;
+    aturAlarm(false);
     alarmAudio.pause();
     alarmAudio.loop = false;
     hentikanKamera();
@@ -367,15 +370,29 @@
   // Seperti AudioFrameHandler: berulang selama alarm menyala; saat padam, putaran yang
   // sedang berjalan diselesaikan dulu baru berhenti.
 
+  // Getar (Android) dan bingkai berkedip ikut menandai alarm, karena browser tidak bisa membunyikan
+  // suara saat volume media ponsel 0.
+  let timerGetar = null;
   function aturAlarm(nyala) {
+    layar.classList.toggle("alarm", nyala);
     if (nyala) {
+      if (!timerGetar && navigator.vibrate) {
+        const getar = () => navigator.vibrate(600);
+        getar();
+        timerGetar = setInterval(getar, 900);
+      }
       alarmAudio.loop = true;
       if (alarmAudio.paused) {
         alarmAudio.currentTime = 0;
         alarmAudio.play().catch((e) => console.warn("Alarm tidak bisa diputar:", e));
       }
-    } else if (!alarmAudio.paused) {
-      alarmAudio.loop = false;
+    } else {
+      if (timerGetar) {
+        clearInterval(timerGetar);
+        timerGetar = null;
+        navigator.vibrate(0);
+      }
+      if (!alarmAudio.paused) alarmAudio.loop = false;
     }
   }
 
@@ -437,6 +454,10 @@
 
   const idKomponen = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
   let seq = 0, kirimKe = 0, antrean = [], timerUlang = null, jedaUlang = JEDA_KIRIM_ULANG;
+  // id baris sesi di database per sesi komponen (dari Python). Ikut dikirim di setiap pesan supaya
+  // sesi Streamlit yang baru setelah koneksi tersambung ulang melanjutkan baris yang sama.
+  const dbSesi = {};
+  let ackIdTerakhir = null;
 
   function kirimPesan(p, uid) {
     p.seq = ++seq;
@@ -450,6 +471,7 @@
   function kirimAntrean() {
     clearTimeout(timerUlang);
     if (!antrean.length) return;
+    for (const p of antrean) if (p.db_id == null && dbSesi[p.sesi] != null) p.db_id = dbSesi[p.sesi];
     kirimKe += 1;
     kirimStreamlit("streamlit:setComponentValue", {
       value: { id: idKomponen, kirim: kirimKe, pesan: antrean },
@@ -463,7 +485,17 @@
 
   function terimaAck() {
     const a = args.ack;
-    if (!a || a.id !== idKomponen) return;
+    if (!a) return;
+    const idBaru = a.id !== ackIdTerakhir;
+    ackIdTerakhir = a.id;
+    if (a.id !== idKomponen) {
+      // Sesi Python baru (koneksi baru tersambung lagi): kirim antrean sekarang, tidak menunggu jeda.
+      if (idBaru && antrean.length) {
+        jedaUlang = JEDA_KIRIM_ULANG;
+        kirimAntrean();
+      }
+      return;
+    }
     antrean = antrean.filter((p) => p.seq > a.seq);
     if (!antrean.length) clearTimeout(timerUlang);
     perbaruiStatus();
@@ -574,13 +606,19 @@
     perbaruiStatus();
   }
 
+  // Tanpa sinyal: browser melaporkan offline, atau ada pesan yang 10 detik belum dikonfirmasi Python.
+  function tanpaSinyal() {
+    return !navigator.onLine || (antrean.length > 0 && Date.now() - antrean[0].waktu_ms > 10000);
+  }
+
   function perbaruiStatus() {
     statusEl.className = "status";
     if (statusKhusus) {
       statusEl.textContent = statusKhusus.teks;
       if (statusKhusus.jenis) statusEl.classList.add(statusKhusus.jenis);
     } else if (berjalan) {
-      statusEl.textContent = `Sesi aktif — ${sesi.jumlah} kejadian tercatat`;
+      statusEl.textContent = `Sesi aktif — ${sesi.jumlah} kejadian tercatat` +
+        (tanpaSinyal() ? " · tanpa sinyal, deteksi tetap berjalan" : "");
       statusEl.classList.add("aktif");
     } else if (sesiTerakhir) {
       const tersimpan = !antrean.some((p) => p.sesi === sesiTerakhir.uid);
@@ -641,7 +679,7 @@
     ];
     el("info").innerHTML = info.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("");
   }
-  setInterval(() => { if (berjalan) perbaruiPanel(); }, 500);
+  setInterval(() => { if (berjalan) { perbaruiPanel(); perbaruiStatus(); } }, 500);
 
   tombolMulai.addEventListener("click", mulai);
   tombolBerhenti.addEventListener("click", () => hentikan("stop"));

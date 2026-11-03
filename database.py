@@ -246,6 +246,16 @@ def start_session(username):
         row = cursor.fetchone()
         return row[0] if row else None
 
+def session_belongs_to_user(session_id, username):
+    """True kalau sesi berkendara ini milik akun tersebut."""
+    with _db() as cursor:
+        cursor.execute('''
+            SELECT 1 FROM driving_sessions s
+            JOIN users u ON u.id = s.user_id
+            WHERE s.id = %s AND u.username = %s
+        ''', (session_id, username))
+        return cursor.fetchone() is not None
+
 # Total per jenis kejadian dihitung dari tabel drowsiness_events.
 _TOTALS_FROM_EVENTS = '''
     total_eye_close = (SELECT count(*) FROM drowsiness_events e

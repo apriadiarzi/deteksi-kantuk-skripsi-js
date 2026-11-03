@@ -15,7 +15,9 @@ pernah dikirim ke server, sehingga pemakaian data kecil dan tidak butuh server r
   **sudut garis antar-telinga** untuk kepala miring. Ambang bisa diatur dengan slider (bawaan EAR 0,23,
   MAR 0,60, sudut 20°, waktu alarm 1 detik).
 - CLAHE pada kanal Y supaya wajah tetap terdeteksi saat pencahayaan redup.
-- Alarm `wake_up.wav` diputar langsung di browser. Layar dijaga tetap menyala selama sesi (Screen Wake Lock).
+- Alarm `wake_up.wav` diputar langsung di browser, disertai getar (Android) dan bingkai merah berkedip.
+  Suara alarm mengikuti volume media ponsel; browser tidak bisa membunyikannya saat volume media 0, jadi
+  getar dan bingkai menjadi tanda cadangan. Layar dijaga tetap menyala selama sesi (Screen Wake Lock).
 - Email darurat ke kontak terdekat setelah mata tertutup 5 detik, menguap 3 detik, atau kepala miring
   5 detik, paling banyak satu email per 2 menit (kejadian di dalam jeda dikirim sebagai ringkasan).
 - Akun dengan verifikasi OTP email, atau **mode tamu** tanpa akun (histori disimpan di browser, tanpa email).
@@ -44,6 +46,9 @@ kamera → [CLAHE] → FaceLandmarker → EAR/MAR/sudut
 - Model (`face_landmarker.task`) dan wasm diunduh dari CDN resmi sekali saja (±6,9 MB), lalu disimpan
   di Cache Storage browser untuk sesi-sesi berikutnya.
 - Sesi tamu ditulis komponen langsung ke `localStorage` (maksimal 10 sesi terbaru).
+- Kalau sinyal hilang (mis. di terowongan), kamera, deteksi, dan alarm tetap berjalan tanpa perlu menekan
+  START lagi; di bawah video muncul "tanpa sinyal, deteksi tetap berjalan". Pesan menunggu di antrean dan
+  dikirim begitu tersambung lagi, ke baris sesi yang sama di database.
 
 ## Struktur repositori
 
