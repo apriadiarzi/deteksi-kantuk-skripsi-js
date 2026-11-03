@@ -12,6 +12,7 @@
   const BATAS_KAMERA_MATI = 3000; // ms kamera tidak aktif sebelum sesi disimpan
   const JEDA_KIRIM_ULANG = 8000;  // ms sebelum pesan yang belum dikonfirmasi dikirim ulang
   const KUNCI_PENGATURAN = "deteksi_kantuk_pengaturan_uji";
+  const KUNCI_ANTREAN = "deteksi_kantuk_antrean";
 
   const el = (id) => document.getElementById(id);
   const layar = el("layar"), layarPesan = el("layar-pesan");
@@ -49,14 +50,13 @@
     ack: null,
     flush_dalam_ms: null,
     panel_pengujian: false,
-    sesi_db: {},
+    akun: null,
   };
 
   window.addEventListener("message", (ev) => {
     const d = ev.data;
     if (!d || d.type !== "streamlit:render") return;
     Object.assign(args, d.args || {});
-    Object.assign(dbSesi, args.sesi_db || {});
     terapkanPanel();
     terimaAck();
     aturFlush();
@@ -149,7 +149,7 @@
   // ─── Sesi ──────────────────────────────────────────────────────────────────
 
   let berjalan = false, sedangMulai = false;
-  let stream = null, track = null;
+  let stream = null, track = null, streamMik = null, statusMik = "belum diminta";
   let sesi = null, sesiTerakhir = null; // { uid, mulaiMs, jumlah, kejadianTamu }
   const detektor = new L.DetektorKantuk();
   let ukur = null; // pengukuran waktu proses sesi berjalan/terakhir
@@ -173,7 +173,7 @@
     try {
       aturStatus("Membuka kamera…");
       try {
-        // Kamera depan, tinggi 360 px, 15 fps, tanpa mikrofon.
+        // Kamera depan, tinggi 360 px, 15 fps.
         stream = await navigator.mediaDevices.getUserMedia({
           video: { facingMode: { ideal: "user" }, height: { ideal: 360 }, frameRate: { ideal: 15, max: 20 } },
           audio: false,
@@ -185,6 +185,18 @@
       track.addEventListener("ended", cekKamera);
       video.srcObject = stream;
       await video.play();
+
+      // Mikrofon ikut dinyalakan (tidak direkam dan tidak dikirim ke mana pun) supaya Chrome Android
+      // memakai jalur suara panggilan: alarm mengikuti volume panggilan, yang tidak bisa 0, bukan
+      // volume media. Kalau ditolak, sesi tetap berjalan dan alarm mengikuti volume media.
+      try {
+        streamMik = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+        statusMik = "aktif";
+      } catch (e) {
+        streamMik = null;
+        statusMik = "tidak diizinkan, alarm mengikuti volume media";
+      }
+      bukaKunciAudio();
 
       if (!landmarker) {
         aturStatus("Memuat model deteksi wajah…");
@@ -228,7 +240,7 @@
 
     ukur.ringkasan = ringkasanWaktu();
     if (args.tamu) simpanTamu();
-    kirimPesan({ jenis: "selesai", alasan, jumlah_kejadian: sesi.jumlah, ringkasan: ukur.ringkasan }, sesi.uid);
+    kirimPesan({ jenis: "selesai", alasan, jumlah_kejadian: sesi.jumlah, ringkasan: ukur.ringkasan });
     sesiTerakhir = sesi;
     sesi = null;
     layarPesan.textContent = alasan === "kamera"
@@ -242,7 +254,9 @@
 
   function hentikanKamera() {
     if (stream) stream.getTracks().forEach((t) => t.stop());
+    if (streamMik) streamMik.getTracks().forEach((t) => t.stop());
     stream = null;
+    streamMik = null;
     track = null;
     video.srcObject = null;
   }
@@ -370,11 +384,9 @@
   // Seperti AudioFrameHandler: berulang selama alarm menyala; saat padam, putaran yang
   // sedang berjalan diselesaikan dulu baru berhenti.
 
-  // Getar (Android) dan bingkai berkedip ikut menandai alarm, karena browser tidak bisa membunyikan
-  // suara saat volume media ponsel 0.
+  // Getar (Android) ikut menandai alarm selama alarm menyala.
   let timerGetar = null;
   function aturAlarm(nyala) {
-    layar.classList.toggle("alarm", nyala);
     if (nyala) {
       if (!timerGetar && navigator.vibrate) {
         const getar = () => navigator.vibrate(600);
@@ -454,27 +466,47 @@
 
   const idKomponen = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
   let seq = 0, kirimKe = 0, antrean = [], timerUlang = null, jedaUlang = JEDA_KIRIM_ULANG;
-  // id baris sesi di database per sesi komponen (dari Python). Ikut dikirim di setiap pesan supaya
-  // sesi Streamlit yang baru setelah koneksi tersambung ulang melanjutkan baris yang sama.
-  const dbSesi = {};
-  let ackIdTerakhir = null;
+  let ackIdTerakhir; // undefined: render pertama selalu dianggap sesi Python baru
 
-  function kirimPesan(p, uid) {
+  // Antrean juga disimpan di localStorage, jadi pesan yang belum dikonfirmasi tidak hilang saat
+  // halaman dimuat ulang, ditutup, atau ditinggal ke halaman Histori. Pesan tertinggal dari komponen
+  // sebelumnya diberi nomor urut baru dan dikirim lagi; Python aman memproses pesan yang sama ulang.
+  try {
+    antrean = JSON.parse(localStorage.getItem(KUNCI_ANTREAN) || "[]").map((p) => Object.assign(p, { seq: ++seq }));
+  } catch (e) { antrean = []; }
+
+  function simpanAntrean() {
+    try {
+      if (antrean.length) localStorage.setItem(KUNCI_ANTREAN, JSON.stringify(antrean));
+      else localStorage.removeItem(KUNCI_ANTREAN);
+    } catch (e) { /* localStorage penuh atau diblokir: antrean tetap di memori */ }
+  }
+
+  // Pesan hanya dikirim saat akun yang membuatnya sedang masuk (tamu = null).
+  function milikAkunIni(p) {
+    return (p.akun || null) === (args.akun || null);
+  }
+
+  function kirimPesan(p, s = sesi) {
     p.seq = ++seq;
-    p.sesi = uid || (sesi && sesi.uid);
+    p.mid = idKomponen + "-" + p.seq;  // id tetap walau dikirim ulang oleh komponen lain
+    p.sesi = s.uid;
+    p.sesi_mulai_ms = s.mulaiMs;      // Python mencari baris sesi dari akun + waktu START ini
+    p.akun = args.akun || null;
     p.waktu_ms = Date.now();
     antrean.push(p);
+    simpanAntrean();
     jedaUlang = JEDA_KIRIM_ULANG;
     kirimAntrean();
   }
 
   function kirimAntrean() {
     clearTimeout(timerUlang);
-    if (!antrean.length) return;
-    for (const p of antrean) if (p.db_id == null && dbSesi[p.sesi] != null) p.db_id = dbSesi[p.sesi];
+    const pesan = antrean.filter(milikAkunIni);
+    if (!pesan.length) return;
     kirimKe += 1;
     kirimStreamlit("streamlit:setComponentValue", {
-      value: { id: idKomponen, kirim: kirimKe, pesan: antrean },
+      value: { id: idKomponen, kirim: kirimKe, pesan },
       dataType: "json",
     });
     timerUlang = setTimeout(() => {
@@ -489,15 +521,17 @@
     const idBaru = a.id !== ackIdTerakhir;
     ackIdTerakhir = a.id;
     if (a.id !== idKomponen) {
-      // Sesi Python baru (koneksi baru tersambung lagi): kirim antrean sekarang, tidak menunggu jeda.
-      if (idBaru && antrean.length) {
+      // Komponen baru dibuka atau sesi Python baru (koneksi tersambung lagi): kirim antrean sekarang.
+      if (idBaru) {
         jedaUlang = JEDA_KIRIM_ULANG;
         kirimAntrean();
       }
       return;
     }
-    antrean = antrean.filter((p) => p.seq > a.seq);
-    if (!antrean.length) clearTimeout(timerUlang);
+    const sebelum = antrean.length;
+    antrean = antrean.filter((p) => !milikAkunIni(p) || p.seq > a.seq);
+    if (antrean.length !== sebelum) simpanAntrean();
+    if (!antrean.some(milikAkunIni)) clearTimeout(timerUlang);
     perbaruiStatus();
   }
 
@@ -608,7 +642,8 @@
 
   // Tanpa sinyal: browser melaporkan offline, atau ada pesan yang 10 detik belum dikonfirmasi Python.
   function tanpaSinyal() {
-    return !navigator.onLine || (antrean.length > 0 && Date.now() - antrean[0].waktu_ms > 10000);
+    const pesan = antrean.filter(milikAkunIni);
+    return !navigator.onLine || (pesan.length > 0 && Date.now() - pesan[0].waktu_ms > 10000);
   }
 
   function perbaruiStatus() {
@@ -674,6 +709,7 @@
       ["Model & wasm", `tasks-vision ${M.VERSI}, ${asalModel}`],
       ["Cache Storage", M.status.cacheStorage],
       ["Layar tetap menyala", statusWakeLock],
+      ["Mikrofon (jalur suara panggilan)", statusMik],
       ["Email darurat", args.email_aktif ? (lokasi ? "aktif, lokasi GPS tersedia" : "aktif, lokasi belum tersedia") : "nonaktif"],
       ["Pesan belum dikonfirmasi", String(antrean.length)],
     ];

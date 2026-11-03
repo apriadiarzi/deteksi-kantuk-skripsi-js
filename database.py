@@ -233,11 +233,25 @@ def get_username_by_token(token):
 
 # ─── Sessions ─────────────────────────────────────────────────────────────────
 
-def start_session(username):
-    """Buat sesi berkendara baru dan kembalikan id-nya."""
-    start_time = now_wib().strftime('%Y-%m-%d %H:%M:%S')
-    # Id user dicari langsung di dalam INSERT (satu query).
+def start_session(username, start_time=None):
+    """Id sesi berkendara akun ini yang dimulai pada start_time; dibuat kalau belum ada.
+
+    start_time (teks WIB) diambil dari waktu START di perangkat, jadi pesan yang diproses ulang
+    (mis. setelah koneksi tersambung ulang) menemukan baris sesi yang sama, bukan membuat yang baru.
+    """
+    start_time = start_time or now_wib().strftime('%Y-%m-%d %H:%M:%S')
     with _db(commit=True) as cursor:
+        # Kunci per (akun, waktu mulai) supaya dua pemrosesan bersamaan tidak membuat dua baris.
+        cursor.execute('SELECT pg_advisory_xact_lock(hashtext(%s))', (f"{username}|{start_time}",))
+        cursor.execute('''
+            SELECT s.id FROM driving_sessions s
+            JOIN users u ON u.id = s.user_id
+            WHERE u.username = %s AND s.start_time = %s
+            ORDER BY s.id LIMIT 1
+        ''', (username, start_time))
+        row = cursor.fetchone()
+        if row:
+            return row[0]
         cursor.execute('''
             INSERT INTO driving_sessions (user_id, start_time)
             SELECT id, %s FROM users WHERE username=%s
@@ -245,16 +259,6 @@ def start_session(username):
         ''', (start_time, username))
         row = cursor.fetchone()
         return row[0] if row else None
-
-def session_belongs_to_user(session_id, username):
-    """True kalau sesi berkendara ini milik akun tersebut."""
-    with _db() as cursor:
-        cursor.execute('''
-            SELECT 1 FROM driving_sessions s
-            JOIN users u ON u.id = s.user_id
-            WHERE s.id = %s AND u.username = %s
-        ''', (session_id, username))
-        return cursor.fetchone() is not None
 
 # Total per jenis kejadian dihitung dari tabel drowsiness_events.
 _TOTALS_FROM_EVENTS = '''
@@ -266,28 +270,46 @@ _TOTALS_FROM_EVENTS = '''
                        WHERE e.session_id = s.id AND e.event_type = 'head_tilt')
 '''
 
-def save_session_progress(session_id, new_events: list):
-    """Simpan kejadian baru sesi ini lalu perbarui waktu selesai, durasi, dan totalnya."""
+# Kejadian yang persis sama (sesi, jenis, waktu, durasi) tidak dimasukkan dua kali.
+SQL_TAMBAH_KEJADIAN = '''
+    INSERT INTO drowsiness_events (session_id, event_type, event_time, duration)
+    SELECT %(sesi)s, %(jenis)s, %(waktu)s, %(durasi)s::real
+    WHERE NOT EXISTS (
+        SELECT 1 FROM drowsiness_events
+        WHERE session_id = %(sesi)s AND event_type = %(jenis)s
+          AND event_time = %(waktu)s AND duration = %(durasi)s::real
+    )
+'''
+
+# Waktu selesai tidak pernah mundur, walau pesan lama diproses belakangan.
+SQL_PERBARUI_SESI = f'''
+    UPDATE driving_sessions s
+    SET end_time = GREATEST(COALESCE(s.end_time, %(selesai)s), %(selesai)s),
+        duration = EXTRACT(EPOCH FROM (
+            GREATEST(COALESCE(s.end_time, %(selesai)s), %(selesai)s)::timestamp - s.start_time::timestamp
+        ))::int,
+        {_TOTALS_FROM_EVENTS}
+    WHERE s.id = %(sesi)s
+'''
+
+def save_session_progress(session_id, new_events: list, end_time=None):
+    """Simpan kejadian baru sesi ini lalu perbarui waktu selesai, durasi, dan totalnya.
+
+    Aman dipanggil ulang dengan data yang sama. end_time (teks WIB) bawaannya waktu sekarang.
+    """
     if session_id is None:
         return
 
-    end_time = now_wib().strftime('%Y-%m-%d %H:%M:%S')
+    end_time = end_time or now_wib().strftime('%Y-%m-%d %H:%M:%S')
 
     # Satu transaksi untuk insert kejadian dan update sesi.
     with _db(commit=True) as cursor:
         if new_events:
-            cursor.executemany('''
-                INSERT INTO drowsiness_events (session_id, event_type, event_time, duration)
-                VALUES (%s, %s, %s, %s)
-            ''', [(session_id, e['event_type'], e['event_time'], e['duration']) for e in new_events])
-
-        cursor.execute(f'''
-            UPDATE driving_sessions s
-            SET end_time = %s,
-                duration = EXTRACT(EPOCH FROM (%s::timestamp - s.start_time::timestamp))::int,
-                {_TOTALS_FROM_EVENTS}
-            WHERE s.id = %s
-        ''', (end_time, end_time, session_id))
+            cursor.executemany(SQL_TAMBAH_KEJADIAN, [
+                {"sesi": session_id, "jenis": e['event_type'], "waktu": e['event_time'], "durasi": e['duration']}
+                for e in new_events
+            ])
+        cursor.execute(SQL_PERBARUI_SESI, {"selesai": end_time, "sesi": session_id})
 
 
 # ─── Getters untuk halaman Histori ────────────────────────────────────────────

@@ -10,7 +10,7 @@ import psycopg2
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # Kredensial dan SQL diambil dari modul database aplikasi.
-from database import DATABASE_URL, _TOTALS_FROM_EVENTS  # noqa: E402
+from database import DATABASE_URL, SQL_TAMBAH_KEJADIAN, SQL_PERBARUI_SESI  # noqa: E402
 
 SELECT_HISTORI = '''
     SELECT s.id, s.start_time, s.end_time, s.duration,
@@ -112,17 +112,11 @@ def ukur(n: int = 10, username: str = None):
                 # Pernyataan yang sama dengan save_session_progress()
                 end_time = "2026-01-01 08:00:15"
                 t0 = time.perf_counter()
-                cur.executemany('''
-                    INSERT INTO drowsiness_events (session_id, event_type, event_time, duration)
-                    VALUES (%s, %s, %s, %s)
-                ''', [(sid, *e) for e in CONTOH_KEJADIAN])
-                cur.execute(f'''
-                    UPDATE driving_sessions s
-                    SET end_time = %s,
-                        duration = EXTRACT(EPOCH FROM (%s::timestamp - s.start_time::timestamp))::int,
-                        {_TOTALS_FROM_EVENTS}
-                    WHERE s.id = %s
-                ''', (end_time, end_time, sid))
+                cur.executemany(SQL_TAMBAH_KEJADIAN, [
+                    {"sesi": sid, "jenis": jenis, "waktu": waktu, "durasi": durasi}
+                    for jenis, waktu, durasi in CONTOH_KEJADIAN
+                ])
+                cur.execute(SQL_PERBARUI_SESI, {"selesai": end_time, "sesi": sid})
                 t_tulis = (time.perf_counter() - t0) * 1000
             conn.rollback()  # tidak ada yang tersimpan
         finally:

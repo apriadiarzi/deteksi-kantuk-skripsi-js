@@ -15,9 +15,10 @@ pernah dikirim ke server, sehingga pemakaian data kecil dan tidak butuh server r
   **sudut garis antar-telinga** untuk kepala miring. Ambang bisa diatur dengan slider (bawaan EAR 0,23,
   MAR 0,60, sudut 20°, waktu alarm 1 detik).
 - CLAHE pada kanal Y supaya wajah tetap terdeteksi saat pencahayaan redup.
-- Alarm `wake_up.wav` diputar langsung di browser, disertai getar (Android) dan bingkai merah berkedip.
-  Suara alarm mengikuti volume media ponsel; browser tidak bisa membunyikannya saat volume media 0, jadi
-  getar dan bingkai menjadi tanda cadangan. Layar dijaga tetap menyala selama sesi (Screen Wake Lock).
+- Alarm `wake_up.wav` diputar langsung di browser, disertai getar (Android). Selama sesi mikrofon ikut
+  dinyalakan (tidak direkam dan tidak dikirim), sehingga Chrome Android memakai jalur suara panggilan:
+  alarm mengikuti volume panggilan, yang tidak bisa 0, bukan volume media. Kalau izin mikrofon ditolak,
+  alarm mengikuti volume media. Layar dijaga tetap menyala selama sesi (Screen Wake Lock).
 - Email darurat ke kontak terdekat setelah mata tertutup 5 detik, menguap 3 detik, atau kepala miring
   5 detik, paling banyak satu email per 2 menit (kejadian di dalam jeda dikirim sebagai ringkasan).
 - Akun dengan verifikasi OTP email, atau **mode tamu** tanpa akun (histori disimpan di browser, tanpa email).
@@ -47,8 +48,11 @@ kamera → [CLAHE] → FaceLandmarker → EAR/MAR/sudut
   di Cache Storage browser untuk sesi-sesi berikutnya.
 - Sesi tamu ditulis komponen langsung ke `localStorage` (maksimal 10 sesi terbaru).
 - Kalau sinyal hilang (mis. di terowongan), kamera, deteksi, dan alarm tetap berjalan tanpa perlu menekan
-  START lagi; di bawah video muncul "tanpa sinyal, deteksi tetap berjalan". Pesan menunggu di antrean dan
-  dikirim begitu tersambung lagi, ke baris sesi yang sama di database.
+  START lagi; di bawah video muncul "tanpa sinyal, deteksi tetap berjalan". Pesan menunggu di antrean
+  (juga disimpan di `localStorage`, jadi tidak hilang walau halaman dimuat ulang atau ditinggal ke Histori)
+  dan dikirim begitu tersambung lagi.
+- Pemrosesan pesan aman diulang: baris sesi dicari dari akun + waktu START di perangkat, kejadian yang
+  sama tidak disimpan dua kali, dan permintaan email yang sama tidak dikirim dua kali.
 
 ## Struktur repositori
 
@@ -190,7 +194,8 @@ identik dengan versi Python (lihat uji kesamaan). Perbedaan yang tersisa:
    `test-head-tilt.jpeg` (mata terpejam) versi ini ikut menyimpulkan "mata tertutup", yang tidak
    terdeteksi versi Python. Ambang 0,23 tetap memisahkan kedua kondisi.
 2. **Frame masukan.** Versi Python memproses frame hasil kompresi WebRTC; versi ini memproses frame kamera
-   asli (kamera depan, tinggi 360 px, 15 fps). Mikrofon tidak diminta.
+   asli (kamera depan, tinggi 360 px, 15 fps). Mikrofon hanya dinyalakan untuk jalur suara alarm, tidak
+   direkam atau dikirim.
 3. **STOP langsung menyimpan.** Versi Python menutup sesi setelah kamera mati ≥ 3 detik, jadi waktu
    selesai di database ±3–5 detik lebih lambat. Kamera yang mati sendiri ≥ 3 detik tetap menutup sesi.
 4. **Tanpa simpan berkala.** Versi Python memperbarui waktu selesai sesi tiap 15 detik. Versi ini hanya
