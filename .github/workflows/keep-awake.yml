@@ -1,10 +1,14 @@
 # Kunjungi aplikasi Streamlit secara berkala supaya tidak ditidurkan Streamlit Community Cloud
 # (aplikasi tidur setelah 12 jam tanpa pengunjung). Kalau sudah tidur, aplikasi dibangunkan.
+# Pengunjung ini hanya membuka halaman: tidak pernah masuk, mendaftar, atau mengisi formulir.
 name: Keep Streamlit app awake
 
 on:
   schedule:
-    - cron: "17 */6 * * *"
+    # 00:17, 11:17, dan 22:17 UTC (07:17, 18:17, 05:17 WIB). "Tiap 11 jam" tidak bisa ditulis persis
+    # di cron karena 24 tidak habis dibagi 11; jadwal ini menjaga jedanya tidak pernah lebih dari 11 jam
+    # (22:17 ke 00:17 hanya 2 jam karena cron dimulai ulang tiap hari).
+    - cron: "17 0,11,22 * * *"
   workflow_dispatch:
 
 permissions:

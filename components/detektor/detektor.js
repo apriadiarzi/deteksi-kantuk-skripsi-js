@@ -23,8 +23,13 @@
   const tombolMulai = el("tombol-mulai"), tombolBerhenti = el("tombol-berhenti");
   const statusEl = el("status");
 
-  const alarmAudio = new Audio("wake_up.wav");
+  // Suara alarm diambil lewat pemuat yang mencoba ulang (index.html) dan disimpan di memori, jadi tetap
+  // bisa diputar walau sinyal hilang; kalau tetap gagal, berkasnya diminta langsung oleh elemen audio.
+  const alarmAudio = new Audio();
   alarmAudio.preload = "auto";
+  window.ambilBerkas("wake_up.wav")
+    .then((b) => { alarmAudio.src = URL.createObjectURL(b); })
+    .catch(() => { alarmAudio.src = "wake_up.wav"; });
 
   // ─── Protokol komponen Streamlit ────────────────────────────────────────────
 
@@ -53,15 +58,18 @@
     akun: null,
   };
 
-  window.addEventListener("message", (ev) => {
-    const d = ev.data;
-    if (!d || d.type !== "streamlit:render") return;
+  function terimaRender(d) {
     Object.assign(args, d.args || {});
     terapkanPanel();
     terimaAck();
     aturFlush();
     mulaiGps();
     perbaruiPanel();
+  }
+
+  window.addEventListener("message", (ev) => {
+    const d = ev.data;
+    if (d && d.type === "streamlit:render") terimaRender(d);
   });
 
   // ─── Pengaturan pengujian (per browser) ────────────────────────────────────
@@ -724,6 +732,7 @@
 
   perbaruiStatus();
   perbaruiPanel();
-  kirimStreamlit("streamlit:componentReady", { apiVersion: 1 });
+  // "Siap" sudah dikirim pemuat di index.html; render yang datang sebelum skrip ini berjalan diproses sekarang.
+  if (window.__renderAwal) terimaRender(window.__renderAwal);
   muatModel();
 })();

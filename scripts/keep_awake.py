@@ -5,6 +5,9 @@ Membuka APP_URL dengan Chromium headless. Kalau aplikasi sedang tidur, tombol
 Kalau aplikasi sudah aktif, skrip tetap di halaman sekitar 30 detik supaya terhitung
 sebagai kunjungan. Screenshot akhir disimpan ke keep_awake.png.
 
+Skrip tidak pernah masuk, mendaftar, atau mengisi formulir: satu-satunya yang diklik adalah tombol
+bangunkan milik Streamlit Cloud, dan tombol di dalam tampilan aplikasi atau formulir tidak pernah diklik.
+
 Exit code 1 kalau halaman gagal dibuka atau tombol masih ada setelah 3 menit, selain itu 0.
 Jalankan: APP_URL=https://... python scripts/keep_awake.py
 """
@@ -29,13 +32,19 @@ def log(pesan):
 
 
 def cari_tombol(page):
-    """Tombol pembangun yang terlihat di halaman utama atau salah satu iframe-nya, atau None."""
+    """Tombol pembangun yang terlihat di halaman utama atau salah satu iframe-nya, atau None.
+
+    Tombol di dalam tampilan aplikasi atau formulir dilewati, supaya skrip tidak pernah menekan
+    tombol aplikasi (masuk, daftar, dan sebagainya).
+    """
     for frame in page.frames:
         try:
             tombol = frame.locator("button, [role='button']").filter(has_text=TEKS_TOMBOL)
             for i in range(tombol.count()):
-                if tombol.nth(i).is_visible():
-                    return tombol.nth(i)
+                calon = tombol.nth(i)
+                di_aplikasi = calon.evaluate("el => !!el.closest(\"[data-testid='stAppViewContainer'], form\")")
+                if calon.is_visible() and not di_aplikasi:
+                    return calon
         except PlaywrightError:
             continue  # frame berpindah atau dilepas saat diperiksa
     return None

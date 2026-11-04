@@ -95,10 +95,69 @@
     </div>
   </details>
 
-  <script src="logika.js"></script>
-  <script src="clahe.js"></script>
-  <script src="anotasi.js"></script>
-  <script src="model.js"></script>
-  <script src="detektor.js"></script>
+  <script>
+    /*
+     * Pemuat skrip komponen. "Siap" dikirim ke Streamlit sekarang juga, karena Streamlit menampilkan
+     * peringatan "having trouble loading" bila lewat 3 detik; render yang datang sebelum detektor.js
+     * berjalan disimpan dulu. Berkas diambil dengan percobaan ulang: di Streamlit Community Cloud
+     * sesekali satu permintaan tertahan sekitar 50 detik lalu gagal (HTTP 500), padahal permintaan
+     * ulang langsung berhasil.
+     */
+    (function () {
+      window.__renderAwal = null;
+      window.addEventListener("message", function (ev) {
+        if (ev.data && ev.data.type === "streamlit:render") window.__renderAwal = ev.data;
+      });
+      window.parent.postMessage({ isStreamlitMessage: true, type: "streamlit:componentReady", apiVersion: 1 }, "*");
+
+      // Isi berkas sebagai Blob. Percobaan baru dimulai 3, 9, 18, dan 30 detik setelah percobaan pertama
+      // bila belum ada yang selesai, tanpa membatalkan yang lama (unduhan lambat tetap boleh selesai);
+      // yang pertama berhasil dipakai, sisanya dibatalkan.
+      window.ambilBerkas = function (nama) {
+        return new Promise((berhasil, gagal) => {
+          let selesai = false, aktif = 0, ke = 0;
+          const ctrls = [];
+          const mulai = () => {
+            if (selesai || ke >= 5) return;
+            ke += 1;
+            aktif += 1;
+            const ctrl = new AbortController();
+            ctrls.push(ctrl);
+            fetch(ke === 1 ? nama : nama + "?coba=" + ke, { signal: ctrl.signal })
+              .then((r) => { if (r.status !== 200) throw new Error("HTTP " + r.status); return r.blob(); })
+              .then((isi) => {
+                // Isi kosong = dicegat (mis. pengelola unduhan di laptop menjawab 204), dihitung gagal.
+                if (!isi.size) throw new Error("isi kosong");
+                if (selesai) return;
+                selesai = true;
+                ctrls.forEach((c) => c.abort());
+                berhasil(isi);
+              })
+              .catch(() => {
+                aktif -= 1;
+                if (selesai || aktif > 0) return;
+                if (ke >= 5) gagal(new Error(nama + " gagal dimuat"));
+                else mulai();  // semua percobaan gagal cepat: coba lagi sekarang
+              });
+            setTimeout(mulai, 3000 * ke);
+          };
+          mulai();
+        });
+      };
+
+      const SKRIP = ["logika.js", "clahe.js", "anotasi.js", "model.js", "detektor.js"];
+      Promise.all(SKRIP.map((nama) => window.ambilBerkas(nama).then((b) => b.text()))).then((isi) => {
+        isi.forEach((kode, i) => {
+          const s = document.createElement("script");
+          s.textContent = kode + "\n//# sourceURL=" + SKRIP[i];
+          document.body.appendChild(s);  // dijalankan langsung, berurutan
+        });
+      }).catch((e) => {
+        const status = document.getElementById("status");
+        status.textContent = "Komponen gagal dimuat karena koneksi ke server bermasalah. Muat ulang halaman. (" + e.message + ")";
+        status.className = "status galat";
+      });
+    })();
+  </script>
 </body>
 </html>

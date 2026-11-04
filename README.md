@@ -47,6 +47,9 @@ kamera → [CLAHE] → FaceLandmarker → EAR/MAR/sudut
 - Model (`face_landmarker.task`) dan wasm diunduh dari CDN resmi sekali saja (±6,9 MB), lalu disimpan
   di Cache Storage browser untuk sesi-sesi berikutnya.
 - Sesi tamu ditulis komponen langsung ke `localStorage` (maksimal 10 sesi terbaru).
+- Skrip komponen dan suara alarm dimuat lewat pemuat di `index.html` yang mencoba ulang permintaan yang
+  tertahan (di Streamlit Community Cloud sesekali satu permintaan tertahan ±50 detik lalu gagal), dan
+  komponen langsung memberi tahu Streamlit bahwa ia siap, jadi peringatan "having trouble loading" tidak muncul.
 - Kalau sinyal hilang (mis. di terowongan), kamera, deteksi, dan alarm tetap berjalan tanpa perlu menekan
   START lagi; di bawah video muncul "tanpa sinyal, deteksi tetap berjalan". Pesan menunggu di antrean
   (juga disimpan di `localStorage`, jadi tidak hilang walau halaman dimuat ulang atau ditinggal ke Histori)
