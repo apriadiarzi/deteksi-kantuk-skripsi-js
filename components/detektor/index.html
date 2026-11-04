@@ -101,7 +101,8 @@
      * peringatan "having trouble loading" bila lewat 3 detik; render yang datang sebelum detektor.js
      * berjalan disimpan dulu. Berkas diambil dengan percobaan ulang: di Streamlit Community Cloud
      * sesekali satu permintaan tertahan sekitar 50 detik lalu gagal (HTTP 500), padahal permintaan
-     * ulang langsung berhasil.
+     * ulang langsung berhasil. Kalau yang tertahan index.html ini sendiri, iframe-nya dimuat ulang oleh
+     * penjaga di sesi_login.py, yang membaca tanda window.__komponenSiap.
      */
     (function () {
       window.__renderAwal = null;
@@ -109,6 +110,7 @@
         if (ev.data && ev.data.type === "streamlit:render") window.__renderAwal = ev.data;
       });
       window.parent.postMessage({ isStreamlitMessage: true, type: "streamlit:componentReady", apiVersion: 1 }, "*");
+      window.__komponenSiap = true;
 
       // Isi berkas sebagai Blob. Percobaan baru dimulai 3, 9, 18, dan 30 detik setelah percobaan pertama
       // bila belum ada yang selesai, tanpa membatalkan yang lama (unduhan lambat tetap boleh selesai);

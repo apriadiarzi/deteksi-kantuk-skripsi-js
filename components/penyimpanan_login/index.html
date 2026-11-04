@@ -50,6 +50,7 @@
   });
 
   kirimStreamlit("streamlit:componentReady", { apiVersion: 1 });
+  window.__komponenSiap = true;  // dibaca penjaga pemuatan komponen (sesi_login.py)
   kirimStreamlit("streamlit:setFrameHeight", { height: 0 });
 })();
 </script>

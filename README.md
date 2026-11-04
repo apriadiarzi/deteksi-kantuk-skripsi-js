@@ -50,6 +50,10 @@ kamera → [CLAHE] → FaceLandmarker → EAR/MAR/sudut
 - Skrip komponen dan suara alarm dimuat lewat pemuat di `index.html` yang mencoba ulang permintaan yang
   tertahan (di Streamlit Community Cloud sesekali satu permintaan tertahan ±50 detik lalu gagal), dan
   komponen langsung memberi tahu Streamlit bahwa ia siap, jadi peringatan "having trouble loading" tidak muncul.
+  Kalau yang tertahan `index.html` komponen itu sendiri, penjaga di `sesi_login.py` (dikirim lewat websocket,
+  jadi tidak bisa tertahan) memuat ulang iframe-nya setelah 2 detik.
+- Kalau browser terputus saat skripnya sedang berjalan, skrip sesi lama itu dihentikan diam-diam
+  (`sesi_login.py`), bukan dengan `KeyError` di log; browser sudah pindah ke sesi baru dan pesannya dikirim ulang.
 - Kalau sinyal hilang (mis. di terowongan), kamera, deteksi, dan alarm tetap berjalan tanpa perlu menekan
   START lagi; di bawah video muncul "tanpa sinyal, deteksi tetap berjalan". Pesan menunggu di antrean
   (juga disimpan di `localStorage`, jadi tidak hilang walau halaman dimuat ulang atau ditinggal ke Histori)
